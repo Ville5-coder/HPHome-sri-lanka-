@@ -104,7 +104,7 @@ struct SpelaView: View {
 struct HemView: View {
     // 8 Högskoleprovet sections
     let sections: [HPSection] = [
-        HPSection(id: 1, code: "XYZ", iconName: "calculator"),
+        HPSection(id: 1, code: "XYZ", iconName: "calculator.fill"),
         HPSection(id: 2, code: "KVA", iconName: "scale.3d"),
         HPSection(id: 3, code: "NOG", iconName: "brain.head.profile"),
         HPSection(id: 4, code: "DTK", iconName: "chart.pie"),
