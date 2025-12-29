@@ -1,7 +1,7 @@
 # Home Screen Design Interpretation
 
 ## Design Goal
-Create a clean, scrollable home screen with 8 distinct section blocks arranged in a ladder/staggered layout with one section per block.
+Create a clean, scrollable home screen with 8 distinct section blocks with one section per block. All sections are exactly the same size.
 
 ---
 
@@ -14,20 +14,20 @@ Create a clean, scrollable home screen with 8 distinct section blocks arranged i
 │                                 │
 └─────────────────────────────────┘
 
-     ┌─────────────────────────┐
-     │  [Block 2 - Offset]     │
-     │                         │
-     └─────────────────────────┘
+┌─────────────────────────────────┐
+│     [Block 2 - Full Width]      │
+│                                 │
+└─────────────────────────────────┘
 
 ┌─────────────────────────────────┐
 │     [Block 3 - Full Width]      │
 │                                 │
 └─────────────────────────────────┘
 
-     ┌─────────────────────────┐
-     │  [Block 4 - Offset]     │
-     │                         │
-     └─────────────────────────┘
+┌─────────────────────────────────┐
+│     [Block 4 - Full Width]      │
+│                                 │
+└─────────────────────────────────┘
 
 ... (continues for 8 blocks total)
 ```
@@ -50,16 +50,12 @@ Create a clean, scrollable home screen with 8 distinct section blocks arranged i
 - **Corner Radius**: 16pt (large cards as specified)
 - **Rounded corners**: All cards have friendly, rounded corners
 
-### Block Heights
-- **Placeholder Height**: 120pt (temporary, will adjust based on content later)
-- **Consistent across all blocks** for visual harmony
-
-### Ladder/Staggered Effect
-**Interpretation**: Alternating alignment pattern
-- **Odd blocks (1, 3, 5, 7)**: Aligned to leading edge
-- **Even blocks (2, 4, 6, 8)**: Offset/indented to create ladder effect
-
-**Offset Amount**: 40pt from leading edge (creates clear visual stagger)
+### Block Dimensions
+- **Height**: 180pt (taller rectangular blocks)
+- **Width**: Full width (minus screen margins)
+- **All 8 blocks are exactly the same size** for consistency and visual harmony
+- Rectangular proportion (wider than tall)
+- **No offset**: All blocks aligned the same way
 
 ### Shadow
 - **Light shadow**: 0 2px 8px rgba(0,0,0,0.08) - cards at rest
@@ -79,19 +75,10 @@ Create a clean, scrollable home screen with 8 distinct section blocks arranged i
 ```swift
 ScrollView {
     VStack(spacing: 16) {  // 16pt spacing between blocks
-        // Block 1 - Full width
-        BlockCard(isOffset: false)
-        
-        // Block 2 - Offset
-        BlockCard(isOffset: true)
-        
-        // Block 3 - Full width
-        BlockCard(isOffset: false)
-        
-        // Block 4 - Offset
-        BlockCard(isOffset: true)
-        
-        // ... continues for 8 blocks
+        // All 8 blocks - exactly the same size
+        ForEach(1...8, id: \.self) { blockNumber in
+            BlockCard()
+        }
     }
     .padding(.horizontal, 20)  // Screen margins
     .padding(.vertical, 24)    // Top/bottom breathing room
@@ -99,9 +86,9 @@ ScrollView {
 ```
 
 ### Reusable BlockCard Component
-- Takes `isOffset` parameter
-- Applies leading padding when offset
+- No parameters needed - all blocks identical
 - Consistent styling across all blocks
+- Full width with maxWidth: .infinity
 - No text or content (pure empty blocks)
 
 ---

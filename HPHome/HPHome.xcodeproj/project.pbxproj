@@ -6,6 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E45DFFE82F029593003FB453 /* CLAUDE_GUIDELINES.md in Resources */ = {isa = PBXBuildFile; fileRef = E45DFFE72F029593003FB453 /* CLAUDE_GUIDELINES.md */; };
+		E45DFFEA2F029593003FB453 /* PROJECT_CONFIGURATION.md in Resources */ = {isa = PBXBuildFile; fileRef = E45DFFE92F029593003FB453 /* PROJECT_CONFIGURATION.md */; };
+		E45DFFEC2F029593003FB453 /* PROJECT_STRUCTURE.md in Resources */ = {isa = PBXBuildFile; fileRef = E45DFFEB2F029593003FB453 /* PROJECT_STRUCTURE.md */; };
+		E45DFFEE2F0298FC003FB453 /* DESIGN_GUIDELINES.md in Resources */ = {isa = PBXBuildFile; fileRef = E45DFFED2F0298FB003FB453 /* DESIGN_GUIDELINES.md */; };
+		E45DFFF02F029B69003FB453 /* HOME_SCREEN_DESIGN_INTERPRETATION.md in Resources */ = {isa = PBXBuildFile; fileRef = E45DFFEF2F029B69003FB453 /* HOME_SCREEN_DESIGN_INTERPRETATION.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		E45F0E852F005BD200D0F07E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +32,11 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		E45DFFE72F029593003FB453 /* CLAUDE_GUIDELINES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE_GUIDELINES.md; sourceTree = "<group>"; };
+		E45DFFE92F029593003FB453 /* PROJECT_CONFIGURATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PROJECT_CONFIGURATION.md; sourceTree = "<group>"; };
+		E45DFFEB2F029593003FB453 /* PROJECT_STRUCTURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PROJECT_STRUCTURE.md; sourceTree = "<group>"; };
+		E45DFFED2F0298FB003FB453 /* DESIGN_GUIDELINES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = DESIGN_GUIDELINES.md; sourceTree = "<group>"; };
+		E45DFFEF2F029B69003FB453 /* HOME_SCREEN_DESIGN_INTERPRETATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = HOME_SCREEN_DESIGN_INTERPRETATION.md; sourceTree = "<group>"; };
 		E45F0E752F005BD000D0F07E /* HPHome.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HPHome.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E45F0E842F005BD200D0F07E /* HPHomeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HPHomeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E45F0E8E2F005BD200D0F07E /* HPHomeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HPHomeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -79,6 +92,11 @@
 				E45F0E872F005BD200D0F07E /* HPHomeTests */,
 				E45F0E912F005BD200D0F07E /* HPHomeUITests */,
 				E45F0E762F005BD000D0F07E /* Products */,
+				E45DFFE72F029593003FB453 /* CLAUDE_GUIDELINES.md */,
+				E45DFFE92F029593003FB453 /* PROJECT_CONFIGURATION.md */,
+				E45DFFEB2F029593003FB453 /* PROJECT_STRUCTURE.md */,
+				E45DFFED2F0298FB003FB453 /* DESIGN_GUIDELINES.md */,
+				E45DFFEF2F029B69003FB453 /* HOME_SCREEN_DESIGN_INTERPRETATION.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -212,6 +230,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E45DFFEA2F029593003FB453 /* PROJECT_CONFIGURATION.md in Resources */,
+				E45DFFEC2F029593003FB453 /* PROJECT_STRUCTURE.md in Resources */,
+				E45DFFEE2F0298FC003FB453 /* DESIGN_GUIDELINES.md in Resources */,
+				E45DFFE82F029593003FB453 /* CLAUDE_GUIDELINES.md in Resources */,
+				E45DFFF02F029B69003FB453 /* HOME_SCREEN_DESIGN_INTERPRETATION.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
