@@ -699,7 +699,8 @@ struct HistoricalTestDetailView: View {
     let test: HistoricalTest
     @Environment(\.dismiss) private var dismiss
     @State private var showingProvpassSheet = false
-    @State private var selectedProvpass: (type: String, number: Int)? = nil
+    @State private var selectedProvpassType: String = "KVANT"
+    @State private var selectedProvpassNumber: Int = 1
     
     var body: some View {
         ScrollView {
@@ -739,7 +740,8 @@ struct HistoricalTestDetailView: View {
                             type: "KVANT",
                             provpass: test.kvant1
                         ) {
-                            selectedProvpass = ("KVANT", test.kvant1)
+                            selectedProvpassType = "KVANT"
+                            selectedProvpassNumber = test.kvant1
                             showingProvpassSheet = true
                         }
                         
@@ -747,7 +749,8 @@ struct HistoricalTestDetailView: View {
                             type: "KVANT",
                             provpass: test.kvant2
                         ) {
-                            selectedProvpass = ("KVANT", test.kvant2)
+                            selectedProvpassType = "KVANT"
+                            selectedProvpassNumber = test.kvant2
                             showingProvpassSheet = true
                         }
                     }
@@ -769,7 +772,8 @@ struct HistoricalTestDetailView: View {
                             type: "VERB",
                             provpass: test.verb1
                         ) {
-                            selectedProvpass = ("VERB", test.verb1)
+                            selectedProvpassType = "VERB"
+                            selectedProvpassNumber = test.verb1
                             showingProvpassSheet = true
                         }
                         
@@ -777,7 +781,8 @@ struct HistoricalTestDetailView: View {
                             type: "VERB",
                             provpass: test.verb2
                         ) {
-                            selectedProvpass = ("VERB", test.verb2)
+                            selectedProvpassType = "VERB"
+                            selectedProvpassNumber = test.verb2
                             showingProvpassSheet = true
                         }
                     }
@@ -789,18 +794,16 @@ struct HistoricalTestDetailView: View {
         .background(Color.white)
         .navigationBarHidden(true)
         .sheet(isPresented: $showingProvpassSheet) {
-            if let provpass = selectedProvpass {
-                ProvpassInfoSheet(
-                    type: provpass.type,
-                    provpassNumber: provpass.number,
-                    onStart: {
-                        showingProvpassSheet = false
-                        print("Starting \(provpass.type) Provpass \(provpass.number)")
-                    }
-                )
-                .presentationDetents([.height(240)])
-                .presentationDragIndicator(.visible)
-            }
+            ProvpassInfoSheet(
+                type: selectedProvpassType,
+                provpassNumber: selectedProvpassNumber,
+                onStart: {
+                    showingProvpassSheet = false
+                    print("Starting \(selectedProvpassType) Provpass \(selectedProvpassNumber)")
+                }
+            )
+            .presentationDetents([.height(240)])
+            .presentationDragIndicator(.visible)
         }
     }
 }
@@ -834,17 +837,13 @@ struct ProvpassInfoSheet: View {
                     Spacer()
                 }
                 
-                // Time info with clock icon and toggle
-                HStack(spacing: 8) {
-                    Text(timerEnabled ? "Det tar 55 minuter" : "Obegränsad tid")
+                // Time info with toggle
+                HStack {
+                    Text("Det tar 55 minuter")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                     
                     Spacer()
-                    
-                    Image(systemName: "clock")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                     
                     Toggle("", isOn: $timerEnabled)
                         .labelsHidden()
