@@ -443,6 +443,7 @@ Every view should feel like part of the same app. When in doubt:
 2. Use these guidelines
 3. Keep it simple and clear
 
+ADD Capitalization for all new sections and thing like that
 ---
 
 **Last Updated**: December 29, 2025
