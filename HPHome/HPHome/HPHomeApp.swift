@@ -12,7 +12,8 @@ import SwiftData
 struct HPHomeApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            TestSession.self,
+            TestAnswer.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

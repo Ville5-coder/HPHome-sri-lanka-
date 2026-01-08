@@ -8,11 +8,220 @@
 import SwiftUI
 import SwiftData
 
+// DESIGN GUIDELINE: All future question boxes throughout the app must visually match the 'Gamla Högskoleprov' boxes in layout and appearance (same corner radius, outline color, shadow, padding, and font).
+// DESIGN GUIDELINE: All confirmation popups and overlays must follow the pattern of ExitConfirmationOverlay and GameOverOverlay - with semi-transparent black background (0.4 opacity), white card with rounded corners (24pt radius), shadow, proper spacing (24pt between elements), and consistent button styling.
+// DESIGN GUIDELINE: All screens must have a "Tillbaka" (back) button in the top-left corner with blue color (RGB: 0.1, 0.25, 0.55) as the standard. Game-specific screens (like Ordsviten) should use their game's accent color instead (e.g., green RGB: 0.2, 0.78, 0.35 for Ordsviten).
+
+// MARK: - SwiftData Models for Progress Saving
+
+@Model
+final class TestSession {
+    var id: UUID
+    var testType: String  // "KVANT" or "VERB"
+    var provpassNumber: Int  // 0 for generated, 1-5 for historical
+    var historicalTestYear: String?  // e.g., "2025"
+    var historicalTestSemester: String?  // "HT" or "VT"
+    var currentQuestionNumber: Int
+    var timeRemaining: TimeInterval
+    var timerEnabled: Bool
+    var startedAt: Date
+    var lastUpdated: Date
+    var isCompleted: Bool
+    
+    @Relationship(deleteRule: .cascade)
+    var answers: [TestAnswer]
+    
+    init(testType: String, provpassNumber: Int, historicalTestYear: String? = nil, historicalTestSemester: String? = nil, timerEnabled: Bool) {
+        self.id = UUID()
+        self.testType = testType
+        self.provpassNumber = provpassNumber
+        self.historicalTestYear = historicalTestYear
+        self.historicalTestSemester = historicalTestSemester
+        self.currentQuestionNumber = 1
+        self.timeRemaining = 55 * 60  // 55 minutes
+        self.timerEnabled = timerEnabled
+        self.startedAt = Date()
+        self.lastUpdated = Date()
+        self.isCompleted = false
+        self.answers = []
+    }
+}
+
+@Model
+final class TestAnswer {
+    var questionNumber: Int
+    var selectedOption: String  // "A", "B", "C", "D", or "E"
+    var answeredAt: Date
+    
+    var testSession: TestSession?
+    
+    init(questionNumber: Int, selectedOption: String) {
+        self.questionNumber = questionNumber
+        self.selectedOption = selectedOption
+        self.answeredAt = Date()
+    }
+}
+
 // MARK: - Section Data Model
 struct HPSection: Identifiable {
     let id: Int
     let code: String
     let iconName: String
+}
+
+// MARK: - Reusable Confirmation Overlay Component
+// This component provides a consistent design for all confirmation dialogs
+struct ConfirmationOverlay: View {
+    let title: String
+    let message: String
+    let iconName: String
+    let iconColor: Color
+    let confirmButtonText: String
+    let confirmButtonColor: Color
+    let cancelButtonText: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Background blur
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            // Card
+            VStack(spacing: 24) {
+                // Icon
+                Image(systemName: iconName)
+                    .font(.system(size: 48, weight: .bold))
+                    .foregroundColor(iconColor)
+                
+                // Title
+                Text(title)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    .multilineTextAlignment(.center)
+                
+                // Message
+                Text(message)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                
+                // Buttons
+                VStack(spacing: 12) {
+                    // Cancel button (primary action - on top)
+                    Button(action: onCancel) {
+                        Text(cancelButtonText)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            )
+                    }
+                    
+                    // Confirm button (destructive action - on bottom)
+                    Button(action: onConfirm) {
+                        Text(confirmButtonText)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(confirmButtonColor)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(confirmButtonColor, lineWidth: 2)
+                            )
+                    }
+                }
+            }
+            .padding(32)
+            .frame(width: 340)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+            )
+        }
+        .transition(.opacity)
+    }
+}
+
+// MARK: - Reusable Game Over Overlay Component
+// This component can be used across all games in the app
+struct GameOverOverlay: View {
+    let score: Int
+    let scoreLabel: String  // e.g., "Din streak", "Ditt resultat"
+    let scoreIcon: String  // e.g., "flame.fill", "star.fill"
+    let accentColor: Color  // Main color for the score
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Background blur
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            // Card
+            VStack(spacing: 24) {
+                // Celebration icon
+                Image(systemName: "star.fill")
+                    .font(.system(size: 60, weight: .bold))
+                    .foregroundColor(Color(red: 1.0, green: 0.84, blue: 0.0))  // Gold
+                    .shadow(color: Color(red: 1.0, green: 0.84, blue: 0.0).opacity(0.5), radius: 10)
+                
+                // Title
+                Text("Spel slut!")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                
+                // Score info
+                VStack(spacing: 8) {
+                    Text(scoreLabel)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+                    
+                    HStack(spacing: 8) {
+                        Image(systemName: scoreIcon)
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.0))
+                        Text("\(score)")
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(accentColor)
+                    }
+                }
+                .padding(.vertical, 16)
+                .padding(.horizontal, 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(red: 0.97, green: 0.97, blue: 0.97))
+                )
+                
+                // Close button
+                Button(action: onDismiss) {
+                    Text("Avsluta")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(red: 0.2, green: 0.78, blue: 0.35))
+                        )
+                }
+            }
+            .padding(32)
+            .frame(width: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+            )
+        }
+        .transition(.opacity)
+    }
 }
 
 struct ContentView: View {
@@ -106,6 +315,8 @@ struct ContentView: View {
 
 // MARK: - Tab Views
 struct SpelaView: View {
+    @State private var navigateToOrdsviten = false
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -122,22 +333,26 @@ struct SpelaView: View {
                     
                     // Two games in a row
                     HStack(spacing: 16) {
-                        // Game 1: Ordsviten (Green)
+                        // Game 1: Ordsviten (Green) - Trains ORD
                         GameCard(
                             title: "Ordsviten",
                             iconName: "text.word.spacing",
-                            color: Color(red: 0.2, green: 0.78, blue: 0.35)  // Nice green
+                            color: Color(red: 0.2, green: 0.78, blue: 0.35),  // Nice green
+                            sectionCode: "ORD",
+                            sectionIcon: "lightbulb"
                         ) {
-                            print("Ordsviten tapped")
+                            navigateToOrdsviten = true
                         }
                         
-                        // Game 2: Udda ordet (Black)
+                        // Game 2: Finn felet (Black) - Trains MEK
                         GameCard(
-                            title: "Udda ordet",
+                            title: "Finn felet",
                             iconName: "xmark.circle.fill",
-                            color: Color(red: 0.11, green: 0.11, blue: 0.118)  // Black
+                            color: Color(red: 0.11, green: 0.11, blue: 0.118),  // Black
+                            sectionCode: "MEK",
+                            sectionIcon: "puzzlepiece"
                         ) {
-                            print("Udda ordet tapped")
+                            print("Finn felet tapped")
                         }
                     }
                     .padding(.horizontal, 20)
@@ -146,6 +361,9 @@ struct SpelaView: View {
             }
             .background(Color.white)
             .navigationBarHidden(true)
+            .navigationDestination(isPresented: $navigateToOrdsviten) {
+                OrdsvitenIntroView()
+            }
         }
     }
 }
@@ -155,47 +373,1340 @@ struct GameCard: View {
     let title: String
     let iconName: String
     let color: Color
+    let sectionCode: String
+    let sectionIcon: String
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 16) {
-                // Large icon
-                Image(systemName: iconName)
-                    .font(.system(size: 48, weight: .medium))
-                    .foregroundColor(.white)
+            ZStack {
+                VStack(spacing: 16) {
+                    // Large icon
+                    Image(systemName: iconName)
+                        .font(.system(size: 48, weight: .medium))
+                        .foregroundColor(.white)
+                    
+                    // Title text below icon
+                    Text(title)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(color)
+                )
                 
-                // Title text below icon
-                Text(title)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
+                // Section badge in top right corner
+                VStack {
+                    HStack {
+                        Spacer()
+                        Image(systemName: sectionIcon)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(12)
+                    }
+                    Spacer()
+                }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 160)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(color)
-            )
             .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
     }
 }
 
+// MARK: - Difficulty Button Component
+struct DifficultyButton: View {
+    let time: Double
+    let label: String
+    let sublabel: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    // Emoji and color based on difficulty
+    private var emoji: String {
+        switch label {
+        case "Lätt": return "🌱"
+        case "Medium": return "⚡️"
+        case "Svår": return "🔥"
+        default: return "⭐️"
+        }
+    }
+    
+    private var accentColor: Color {
+        switch label {
+        case "Lätt": return Color(red: 0.2, green: 0.78, blue: 0.35)  // Green
+        case "Medium": return Color(red: 1.0, green: 0.6, blue: 0.0)  // Orange
+        case "Svår": return Color(red: 0.95, green: 0.27, blue: 0.27)  // Red
+        default: return Color(red: 0.2, green: 0.78, blue: 0.35)
+        }
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                // Emoji icon
+                Text(emoji)
+                    .font(.system(size: 32))
+                
+                Text(label)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                Text(sublabel)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? accentColor : Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Heart Button Component
+struct HeartButton: View {
+    let hearts: Int
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                ForEach(0..<hearts, id: \.self) { _ in
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.red)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? Color(red: 0.2, green: 0.78, blue: 0.35) : Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Ordsviten Intro View
+// TUTORIAL STRUCTURE PATTERN:
+// This tutorial structure can be replicated for all games in the app.
+// Key components:
+// 1. @AppStorage for persisting tutorial completion (e.g., "hasCompleted[GameName]Tutorial")
+// 2. Step-based tutorial flow (0=title/buttons, 1-N=interactive steps, final=completion)
+// 3. Interactive demonstrations with hand gesture hints
+// 4. After completion, return to step 0 (title/buttons) so user can press "Spela" when ready
+// 5. Tutorial is skipped on subsequent visits - goes straight to step 0 (title/buttons)
+// 6. Manual start via "Spela" button that also marks tutorial as complete
+// 7. Use GameOverOverlay component for consistent game ending across all games
+struct OrdsvitenIntroView: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("hasCompletedOrdsvitenTutorial") private var hasCompletedTutorial = false
+    @State private var startGame = false
+    @State private var skipTutorial = false  // Track if user wants to skip to game
+    @State private var currentStep = 0  // 0 = title, 1 = first card, 2 = second card, 3 = done
+    @State private var cardOffset = CGSize.zero
+    @State private var showCheckmark = false
+    @State private var showXmark = false
+    @State private var hintOffset: CGFloat = 0  // For animated hint
+    
+    // Game settings
+    @State private var selectedTimePerWord: Double = 5.0  // Default: 5 seconds (Medium)
+    @State private var selectedHearts: Int = 3  // Default: 3 hearts
+    
+    // Tutorial words
+    let tutorialWords = [
+        (word: "Hund", left: "djur", right: "möbel", correctSide: "left"),
+        (word: "Stol", left: "fordon", right: "möbel", correctSide: "right")
+    ]
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header with back button (green for Ordsviten game)
+            HStack {
+                Button(action: { dismiss() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Tillbaka")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(Color(red: 0.2, green: 0.78, blue: 0.35))  // Green for Ordsviten
+                    )
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            
+            Spacer()
+            
+            // Interactive tutorial area
+            ZStack {
+                if currentStep == 0 {
+                    // Show title and settings
+                    VStack(spacing: 32) {
+                        // Title
+                        Text("Ordsviten")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                            .padding(.bottom, 16)
+                        
+                        // Settings section
+                        VStack(spacing: 32) {
+                            // Time per word setting
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Tid per ord")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                
+                                HStack(spacing: 12) {
+                                    // 10 sec - Lätt
+                                    DifficultyButton(
+                                        time: 10.0,
+                                        label: "Lätt",
+                                        sublabel: "10 sek",
+                                        isSelected: selectedTimePerWord == 10.0
+                                    ) {
+                                        selectedTimePerWord = 10.0
+                                    }
+                                    
+                                    // 5 sec - Medium
+                                    DifficultyButton(
+                                        time: 5.0,
+                                        label: "Medium",
+                                        sublabel: "5 sek",
+                                        isSelected: selectedTimePerWord == 5.0
+                                    ) {
+                                        selectedTimePerWord = 5.0
+                                    }
+                                    
+                                    // 2 sec - Svår
+                                    DifficultyButton(
+                                        time: 2.0,
+                                        label: "Svår",
+                                        sublabel: "2 sek",
+                                        isSelected: selectedTimePerWord == 2.0
+                                    ) {
+                                        selectedTimePerWord = 2.0
+                                    }
+                                }
+                            }
+                            
+                            // Hearts setting
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Antal liv")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                
+                                HStack(spacing: 12) {
+                                    // 1 heart
+                                    HeartButton(hearts: 1, isSelected: selectedHearts == 1) {
+                                        selectedHearts = 1
+                                    }
+                                    
+                                    // 3 hearts
+                                    HeartButton(hearts: 3, isSelected: selectedHearts == 3) {
+                                        selectedHearts = 3
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                } else if currentStep == 3 {
+                    // Show completion message
+                    VStack(spacing: 24) {
+                        Image(systemName: "party.popper.fill")
+                            .font(.system(size: 64, weight: .semibold))
+                            .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))  // Green
+                        
+                        Text("Grymt!")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        
+                        Text("Dags att spela på riktigt")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                            .multilineTextAlignment(.center)
+                    }
+                    .onAppear {
+                        // Mark tutorial as completed
+                        hasCompletedTutorial = true
+                        
+                        // After 2 seconds, go back to title/button view
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            withAnimation {
+                                currentStep = 0
+                            }
+                        }
+                    }
+                } else if currentStep <= 2 {
+                    // Show interactive card
+                    let cardIndex = currentStep - 1
+                    if cardIndex < tutorialWords.count {
+                        let card = tutorialWords[cardIndex]
+                        
+                        VStack(spacing: 0) {
+                            Spacer()
+                            
+                            // Instruction text above word
+                            Text("Dra kortet åt det håll som matchar alternativet")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                                .padding(.bottom, 16)
+                                .opacity(cardOffset == .zero ? 1.0 : 0.3)
+                                .animation(.easeInOut(duration: 0.2), value: cardOffset)
+                            
+                            // Word
+                            Text(card.word)
+                                .font(.system(size: 48, weight: .bold))
+                                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                .padding(.bottom, 60)
+                            
+                            // Swipeable card
+                            ZStack {
+                                VStack(spacing: 32) {
+                                    // Left option
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "arrow.left")
+                                            .font(.system(size: 20, weight: .bold))
+                                            .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                                        Text(card.left)
+                                            .font(.system(size: 24, weight: .semibold))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                        Spacer()
+                                    }
+                                    
+                                    Divider()
+                                        .background(Color.gray.opacity(0.3))
+                                    
+                                    // Right option
+                                    HStack(spacing: 12) {
+                                        Spacer()
+                                        Text(card.right)
+                                            .font(.system(size: 24, weight: .semibold))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                        Image(systemName: "arrow.right")
+                                            .font(.system(size: 20, weight: .bold))
+                                            .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                                    }
+                                }
+                                .padding(32)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .fill(Color(red: 0.97, green: 0.97, blue: 0.97))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                                )
+                                .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 4)
+                                
+                                // Hand drag hint icon - only show when card is not being dragged
+                                if cardOffset == .zero {
+                                    Image(systemName: "hand.draw")
+                                        .font(.system(size: 40, weight: .semibold))
+                                        .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35).opacity(0.5))
+                                        .offset(x: hintOffset)
+                                        .transition(.opacity)
+                                }
+                            }
+                            .offset(x: cardOffset.width + (cardOffset == .zero ? hintOffset : 0), y: cardOffset.height)
+                            .rotationEffect(.degrees(Double((cardOffset.width + (cardOffset == .zero ? hintOffset : 0)) / 20)))
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { gesture in
+                                        cardOffset = gesture.translation
+                                    }
+                                    .onEnded { gesture in
+                                        handleSwipe(gesture: gesture, correctSide: card.correctSide)
+                                    }
+                            )
+                            .padding(.horizontal, 20)
+                            
+                            Spacer()
+                        }
+                    }
+                }
+                
+                // Feedback overlays
+                if showCheckmark {
+                    Color.green.opacity(0.3)
+                        .ignoresSafeArea()
+                        .overlay(
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 100, weight: .bold))
+                                .foregroundColor(.green)
+                        )
+                }
+                
+                if showXmark {
+                    Color.red.opacity(0.3)
+                        .ignoresSafeArea()
+                        .overlay(
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 100, weight: .bold))
+                                .foregroundColor(.red)
+                        )
+                }
+            }
+
+
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            Spacer()
+            
+            // Action buttons
+            VStack(spacing: 16) {
+                // Play button
+                Button(action: {
+                    hasCompletedTutorial = true
+                    startGame = true
+                }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Spela")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(red: 0.2, green: 0.78, blue: 0.35))
+                    )
+                }
+                
+                // Cancel button
+                Button(action: { dismiss() }) {
+                    Text("Avbryt")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(red: 0.0, green: 0.48, blue: 1.0), lineWidth: 2)
+                        )
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
+        }
+        .background(Color.white)
+        .navigationBarHidden(true)
+        .navigationDestination(isPresented: $startGame) {
+            OrdsvitenGameView(timePerWord: selectedTimePerWord, maxHearts: selectedHearts)
+        }
+        .onAppear {
+            // Only show tutorial if not completed
+            if !hasCompletedTutorial {
+                // Show title for 1 second, then first card
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    withAnimation {
+                        currentStep = 1
+                    }
+                    // Start the hint animation
+                    startHintAnimation()
+                }
+            }
+            // If tutorial is completed, just show the title and buttons (currentStep = 0)
+        }
+    }
+    
+    private func startHintAnimation() {
+        // Determine the correct direction based on the current tutorial card
+        let cardIndex = currentStep - 1
+        guard cardIndex < tutorialWords.count else { return }
+        let card = tutorialWords[cardIndex]
+        let direction: CGFloat = card.correctSide == "left" ? -30 : 30
+        
+        // Animate the hint offset back and forth
+        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+            hintOffset = direction
+        }
+    }
+    
+    private func stopHintAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            hintOffset = 0
+        }
+    }
+    
+    private func handleSwipe(gesture: DragGesture.Value, correctSide: String) {
+        let swipeThreshold: CGFloat = 100
+        
+        if abs(gesture.translation.width) > swipeThreshold {
+            stopHintAnimation()
+            let swipedLeft = gesture.translation.width < 0
+            let isCorrect = (swipedLeft && correctSide == "left") || (!swipedLeft && correctSide == "right")
+            
+            if isCorrect {
+                // Show correct feedback
+                showCheckmark = true
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showCheckmark = false
+                    
+                    // Move to next step
+                    currentStep += 1
+                    cardOffset = .zero
+                    
+                    // Restart hint animation for the new card if still in tutorial
+                    if currentStep <= 2 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            startHintAnimation()
+                        }
+                    }
+                }
+            } else {
+                // Show wrong feedback, reset card
+                showXmark = true
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showXmark = false
+                    withAnimation(.spring()) {
+                        cardOffset = .zero
+                    }
+                    // Restart hint animation after error
+                    startHintAnimation()
+                }
+            }
+        } else {
+            // Reset card position
+            withAnimation(.spring()) {
+                cardOffset = .zero
+            }
+        }
+    }
+}
+
+// MARK: - Ordsviten Game View
+struct OrdsvitenGameView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    let timePerWord: Double  // Time per word from settings
+    let maxHearts: Int  // Max hearts from settings
+    
+    @State private var hearts: Int
+    @State private var streak = 0
+    @State private var currentQuestionIndex = 0
+    @State private var offset = CGSize.zero
+    @State private var showingCorrectFeedback = false
+    @State private var showingWrongFeedback = false
+    @State private var gameOver = false
+    @State private var timeRemaining: Double
+    @State private var timer: Timer?
+    @State private var heartBounce = false
+    @State private var streakBounce = false
+    
+    // Initialize with settings
+    init(timePerWord: Double = 5.0, maxHearts: Int = 3) {
+        self.timePerWord = timePerWord
+        self.maxHearts = maxHearts
+        self._hearts = State(initialValue: maxHearts)
+        self._timeRemaining = State(initialValue: timePerWord)
+    }
+    
+    // Sample questions (in real app, this would come from a database)
+    let questions = [
+        WordQuestion(word: "Hund", leftOption: "djur", rightOption: "möbel", correctSide: .left),
+        WordQuestion(word: "Stol", leftOption: "fordon", rightOption: "möbel", correctSide: .right),
+        WordQuestion(word: "Bil", leftOption: "fordon", rightOption: "frukt", correctSide: .left),
+        WordQuestion(word: "Äpple", leftOption: "verktyg", rightOption: "frukt", correctSide: .right),
+        WordQuestion(word: "Hammare", leftOption: "verktyg", rightOption: "väder", correctSide: .left),
+        WordQuestion(word: "Katt", leftOption: "djur", rightOption: "verktyg", correctSide: .left),
+        WordQuestion(word: "Bord", leftOption: "frukt", rightOption: "möbel", correctSide: .right),
+        WordQuestion(word: "Cykel", leftOption: "fordon", rightOption: "kläder", correctSide: .left),
+        WordQuestion(word: "Banan", leftOption: "instrument", rightOption: "frukt", correctSide: .right),
+        WordQuestion(word: "Såg", leftOption: "verktyg", rightOption: "djur", correctSide: .left),
+        WordQuestion(word: "Häst", leftOption: "djur", rightOption: "väder", correctSide: .left),
+        WordQuestion(word: "Soffa", leftOption: "fordon", rightOption: "möbel", correctSide: .right),
+        WordQuestion(word: "Tåg", leftOption: "fordon", rightOption: "mat", correctSide: .left),
+        WordQuestion(word: "Apelsin", leftOption: "verktyg", rightOption: "frukt", correctSide: .right),
+        WordQuestion(word: "Skruvmejsel", leftOption: "verktyg", rightOption: "kläder", correctSide: .left),
+        WordQuestion(word: "Mus", leftOption: "djur", rightOption: "möbel", correctSide: .left),
+        WordQuestion(word: "Lampa", leftOption: "djur", rightOption: "möbel", correctSide: .right),
+        WordQuestion(word: "Motorcykel", leftOption: "fordon", rightOption: "mat", correctSide: .left),
+        WordQuestion(word: "Päron", leftOption: "kläder", rightOption: "frukt", correctSide: .right),
+        WordQuestion(word: "Tång", leftOption: "verktyg", rightOption: "väder", correctSide: .left)
+    ]
+    
+    var currentQuestion: WordQuestion? {
+        guard currentQuestionIndex < questions.count else { return nil }
+        return questions[currentQuestionIndex]
+    }
+    
+    var body: some View {
+        ZStack {
+            Color.white.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Top bar with hearts and streak
+                HStack {
+                    // Hearts
+                    HStack(spacing: 8) {
+                        ForEach(0..<maxHearts, id: \.self) { index in
+                            Image(systemName: index < hearts ? "heart.fill" : "heart")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundColor(index < hearts ? .red : Color.gray.opacity(0.3))
+                        }
+                    }
+                    .scaleEffect(heartBounce ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.5), value: heartBounce)
+                    
+                    Spacer()
+                    
+                    // Streak counter
+                    HStack(spacing: 8) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.0))
+                        Text("\(streak)")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    }
+                    .scaleEffect(streakBounce ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.5), value: streakBounce)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                
+                // Timer bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Background
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 8)
+                        
+                        // Progress
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(
+                                timeRemaining > 2.0 ? Color(red: 0.2, green: 0.78, blue: 0.35) :
+                                timeRemaining > 1.0 ? Color.orange : Color.red
+                            )
+                            .frame(width: geometry.size.width * CGFloat(timeRemaining / timePerWord), height: 8)
+                            .animation(.linear(duration: 0.1), value: timeRemaining)
+                    }
+                }
+                .frame(height: 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                
+                Spacer()
+                
+                if let question = currentQuestion {
+                    // Main word in center
+                    Text(question.word)
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        .padding(.bottom, 60)
+                    
+                    // Swipe card with options
+                    ZStack {
+                        // Card
+                        VStack(spacing: 32) {
+                            // Left option
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.left")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                                Text(question.leftOption)
+                                    .font(.system(size: 24, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                Spacer()
+                            }
+                            
+                            Divider()
+                                .background(Color.gray.opacity(0.3))
+                            
+                            // Right option
+                            HStack(spacing: 12) {
+                                Spacer()
+                                Text(question.rightOption)
+                                    .font(.system(size: 24, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                            }
+                        }
+                        .padding(32)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color(red: 0.97, green: 0.97, blue: 0.97))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20)
+                                .stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                        )
+                        .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 4)
+                        .offset(offset)
+                        .rotationEffect(.degrees(Double(offset.width / 20)))
+                        .gesture(
+                            DragGesture()
+                                .onChanged { gesture in
+                                    offset = gesture.translation
+                                }
+                                .onEnded { gesture in
+                                    handleSwipe(translation: gesture.translation)
+                                }
+                        )
+                    }
+                    .padding(.horizontal, 20)
+                } else {
+                    // Game complete
+                    Text("Spelet slut!")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                }
+                
+                Spacer()
+            }
+            
+            // Feedback overlays
+            if showingCorrectFeedback {
+                Color.green.opacity(0.3)
+                    .ignoresSafeArea()
+                    .overlay(
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 100, weight: .bold))
+                            .foregroundColor(.green)
+                    )
+            }
+            
+            if showingWrongFeedback {
+                Color.red.opacity(0.3)
+                    .ignoresSafeArea()
+                    .overlay(
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 100, weight: .bold))
+                            .foregroundColor(.red)
+                    )
+            }
+        }
+        .navigationBarHidden(true)
+        .overlay {
+            // Custom game over overlay using reusable component
+            if gameOver {
+                GameOverOverlay(
+                    score: streak,
+                    scoreLabel: "Din streak",
+                    scoreIcon: "flame.fill",
+                    accentColor: Color(red: 0.2, green: 0.78, blue: 0.35)
+                ) {
+                    dismiss()
+                }
+            }
+        }
+        .onAppear {
+            startTimer()
+        }
+        .onDisappear {
+            stopTimer()
+        }
+    }
+    
+    private func startTimer() {
+        timeRemaining = timePerWord
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            if timeRemaining > 0 {
+                timeRemaining -= 0.1
+            } else {
+                // Time's up - lose a heart
+                timer?.invalidate()
+                handleTimeout()
+            }
+        }
+    }
+    
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    private func handleTimeout() {
+        hearts -= 1
+        triggerHeartBounce()
+        showWrongFeedback()
+        
+        if hearts <= 0 {
+            stopTimer()
+            gameOver = true
+        } else {
+            // Move to next question
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                currentQuestionIndex += 1
+                offset = .zero
+                
+                if currentQuestion == nil {
+                    // All questions completed
+                    stopTimer()
+                    gameOver = true
+                } else {
+                    startTimer()
+                }
+            }
+        }
+    }
+    
+    private func handleSwipe(translation: CGSize) {
+        let swipeThreshold: CGFloat = 100
+        
+        if abs(translation.width) > swipeThreshold {
+            stopTimer()
+            let swipedLeft = translation.width < 0
+            checkAnswer(swipedLeft: swipedLeft)
+        } else {
+            // Reset card position
+            withAnimation(.spring()) {
+                offset = .zero
+            }
+        }
+    }
+    
+    private func checkAnswer(swipedLeft: Bool) {
+        guard let question = currentQuestion else { return }
+        
+        let isCorrect = (swipedLeft && question.correctSide == .left) ||
+                       (!swipedLeft && question.correctSide == .right)
+        
+        if isCorrect {
+            // Correct answer
+            streak += 1
+            triggerStreakBounce()
+            showCorrectFeedback()
+        } else {
+            // Wrong answer
+            hearts -= 1
+            triggerHeartBounce()
+            showWrongFeedback()
+            
+            // Check if game over AFTER showing feedback
+            if hearts <= 0 {
+                stopTimer()  // Stop timer immediately
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    gameOver = true
+                }
+                return
+            }
+        }
+        
+        // Move to next question (only if hearts > 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            currentQuestionIndex += 1
+            offset = .zero
+            
+            if currentQuestion == nil {
+                // All questions completed
+                stopTimer()  // Stop timer when all questions done
+                gameOver = true
+            } else {
+                startTimer()
+            }
+        }
+    }
+    
+    private func showCorrectFeedback() {
+        showingCorrectFeedback = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showingCorrectFeedback = false
+        }
+    }
+    
+    private func showWrongFeedback() {
+        showingWrongFeedback = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showingWrongFeedback = false
+        }
+    }
+    
+    private func triggerHeartBounce() {
+        heartBounce = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            heartBounce = false
+        }
+    }
+    
+    private func triggerStreakBounce() {
+        streakBounce = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            streakBounce = false
+        }
+    }
+}
+
+// MARK: - Word Question Model
+struct WordQuestion {
+    let word: String
+    let leftOption: String
+    let rightOption: String
+    let correctSide: Side
+    
+    enum Side {
+        case left, right
+    }
+}
+
 struct HemView: View {
+    @AppStorage("dagensOrdStreak") private var streak = 0
+    @AppStorage("lastCompletedDate") private var lastCompletedDateString = ""
+    @State private var selectedAnswer: String? = nil
+    @State private var hasAnswered = false
+    @State private var showFeedback = false
+    @State private var timeRemaining: TimeInterval = 0
+    @State private var timer: Timer?
+    
+    // HP-estimering scores (superficial for now)
+    private let kvantScore: Double = 1.5
+    private let verbScore: Double = 1.3
+    
+    // Sample word of the day - in real app, this would come from database based on date
+    let todaysWord = (
+        word: "ruva",
+        correctAnswer: "skydda",
+        alternatives: [
+            "liten vrå",
+            "väderbiten",
+            "om väldigt liten text",
+            "skydda",
+            "pressade foderkulor"
+        ],
+        explanation: "\"ruva\" betyder skydda"
+    )
+    
+    // Target date: April 18, 2026
+    var targetDate: Date {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 4
+        components.day = 18
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        return Calendar.current.date(from: components) ?? Date()
+    }
+    
+    // Format time remaining into days, hours, minutes, seconds
+    var timeComponents: (days: Int, hours: Int, minutes: Int, seconds: Int) {
+        let total = Int(timeRemaining)
+        let days = total / 86400
+        let hours = (total % 86400) / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return (days, hours, minutes, seconds)
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    // Empty - content to be added
+                VStack(spacing: 24) {
+                    // Header
+                    HStack {
+                        Text("Hem")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    
+                    // HP-estimering Section
+                    VStack(spacing: 16) {
+                        // Title
+                        Text("HP-estimering")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        HStack(spacing: 16) {
+                            // Total score (left side - larger) - removed "Totalt" text
+                            VStack(spacing: 8) {
+                                Text(String(format: "%.1f", calculateTotalScore()))
+                                    .font(.system(size: 56, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color.white.opacity(0.2))
+                            )
+                            
+                            // KVANT and VERB scores (right side)
+                            VStack(spacing: 12) {
+                                // KVANT
+                                HStack(spacing: 12) {
+                                    Text("KVANT")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.9))
+                                    Spacer()
+                                    Text(String(format: "%.1f", kvantScore))
+                                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                                        .foregroundColor(.white)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.white.opacity(0.2))
+                                )
+                                
+                                // VERB
+                                HStack(spacing: 12) {
+                                    Text("VERB")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.9))
+                                    Spacer()
+                                    Text(String(format: "%.1f", verbScore))
+                                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                                        .foregroundColor(.white)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.white.opacity(0.2))
+                                )
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.71, green: 0.55, blue: 0.26),  // Calm dark gold/yellow
+                                        Color(red: 0.78, green: 0.62, blue: 0.32)   // Slightly lighter gold
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 4)
+                    .padding(.horizontal, 20)
+                    
+                    // Countdown Timer Section
+                    VStack(spacing: 16) {
+                        // Title with clock icon
+                        HStack(spacing: 8) {
+                            Text("Tid kvar till vårens HP")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        // Countdown display
+                        HStack(spacing: 12) {
+                            // Days
+                            TimeUnitView(value: timeComponents.days, unit: "dagar")
+                            
+                            // Separator
+                            Text(":")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.white.opacity(0.5))
+                            
+                            // Hours
+                            TimeUnitView(value: timeComponents.hours, unit: "timmar")
+                            
+                            // Separator
+                            Text(":")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.white.opacity(0.5))
+                            
+                            // Minutes
+                            TimeUnitView(value: timeComponents.minutes, unit: "minuter")
+                            
+                            // Separator
+                            Text(":")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.white.opacity(0.5))
+                            
+                            // Seconds
+                            TimeUnitView(value: timeComponents.seconds, unit: "sekunder")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(Color(red: 0.1, green: 0.25, blue: 0.55))  // Dark blue
+                    )
+                    .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 4)
+                    .padding(.horizontal, 20)
+                    
+                    // Dagens Ord Section
+                    VStack(spacing: 20) {
+                        // Header with title and streak
+                        HStack {
+                            Text("Dagens Ord")
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            Spacer()
+                            
+                            // Streak counter
+                            HStack(spacing: 8) {
+                                Image(systemName: "flame.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.0))
+                                Text("\(streak)")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Color(red: 0.29, green: 0.34, blue: 0.42))
+                            )
+                        }
+                        
+                        // Word display
+                        Text(todaysWord.word)
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.vertical, 16)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(red: 0.29, green: 0.34, blue: 0.42))
+                            )
+                        
+                        // Answer alternatives
+                        VStack(spacing: 12) {
+                            ForEach(Array(todaysWord.alternatives.enumerated()), id: \.element) { index, alternative in
+                                DagensOrdAnswerButton(
+                                    letter: String(UnicodeScalar(65 + index)!),  // A, B, C, D, E
+                                    text: alternative,
+                                    isSelected: selectedAnswer == alternative,
+                                    isCorrect: hasAnswered ? alternative == todaysWord.correctAnswer : nil,
+                                    isWrong: hasAnswered ? (selectedAnswer == alternative && alternative != todaysWord.correctAnswer) : nil
+                                ) {
+                                    if !hasAnswered {
+                                        selectedAnswer = alternative
+                                        hasAnswered = true
+                                        showFeedback = true
+                                        
+                                        // Update streak if correct
+                                        if alternative == todaysWord.correctAnswer {
+                                            updateStreak()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Countdown to next word
+                        HStack(spacing: 8) {
+                            Text("Ett nytt ord väntar imorgon")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white.opacity(0.8))
+                            Image(systemName: "calendar")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(Color(red: 0.40, green: 0.45, blue: 0.54))
+                    )
+                    .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 4)
+                    .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 20)
                 .padding(.vertical, 24)
             }
             .background(Color.white)
-            .navigationTitle("Hem")
+            .navigationBarHidden(true)
+            .onAppear {
+                updateTimeRemaining()
+                startTimer()
+            }
+            .onDisappear {
+                timer?.invalidate()
+            }
         }
+    }
+    
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            updateTimeRemaining()
+        }
+    }
+    
+    private func updateTimeRemaining() {
+        let now = Date()
+        timeRemaining = targetDate.timeIntervalSince(now)
+        
+        // Stop timer if countdown is complete
+        if timeRemaining <= 0 {
+            timeRemaining = 0
+            timer?.invalidate()
+        }
+    }
+    
+    private func updateStreak() {
+        let today = Date()
+        let calendar = Calendar.current
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let todayString = dateFormatter.string(from: today)
+        
+        // Check if we already completed today
+        if lastCompletedDateString == todayString {
+            // Already completed today - don't update
+            return
+        }
+        
+        if lastCompletedDateString.isEmpty {
+            // First time ever
+            streak = 1
+        } else if let lastDate = dateFormatter.date(from: lastCompletedDateString) {
+            // Get the start of both days for accurate comparison
+            let lastDateStart = calendar.startOfDay(for: lastDate)
+            let todayStart = calendar.startOfDay(for: today)
+            
+            let daysBetween = calendar.dateComponents([.day], from: lastDateStart, to: todayStart).day ?? 0
+            
+            if daysBetween == 1 {
+                // Consecutive day - increase streak
+                streak += 1
+            } else if daysBetween > 1 {
+                // Missed days - reset streak
+                streak = 1
+            } else {
+                // Same day (shouldn't happen due to check above, but just in case)
+                return
+            }
+        } else {
+            // Invalid date stored - reset
+            streak = 1
+        }
+        
+        // Update the last completed date
+        lastCompletedDateString = todayString
+    }
+    
+    // Calculate total HP score: (KVANT + VERB) / 2
+    private func calculateTotalScore() -> Double {
+        return (kvantScore + verbScore) / 2.0
+    }
+}
+
+// MARK: - Time Unit View Component
+struct TimeUnitView: View {
+    let value: Int
+    let unit: String
+    
+    // Map full unit names to abbreviations
+    private var abbreviatedUnit: String {
+        switch unit {
+        case "dagar": return "d"
+        case "timmar": return "h"
+        case "minuter": return "m"
+        case "sekunder": return "s"
+        default: return unit
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            // Value
+            Text(String(format: "%02d", value))
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .frame(minWidth: 50)
+            
+            // Unit label (abbreviated)
+            Text(abbreviatedUnit)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white.opacity(0.7))
+        }
+    }
+}
+
+// MARK: - Dagens Ord Answer Button Component
+struct DagensOrdAnswerButton: View {
+    let letter: String
+    let text: String
+    let isSelected: Bool
+    let isCorrect: Bool?
+    let isWrong: Bool?
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text("\(letter))")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                
+                Text(text)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                if let isCorrect = isCorrect, isCorrect {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                
+                if let isWrong = isWrong, isWrong {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        isCorrect == true ? Color(red: 0.2, green: 0.78, blue: 0.35) :  // Solid green
+                        isWrong == true ? Color(red: 0.95, green: 0.27, blue: 0.27) :  // Solid red
+                        Color(red: 0.29, green: 0.34, blue: 0.42)  // Dark blue (unselected)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isCorrect != nil || isWrong != nil)
     }
 }
 
@@ -239,12 +1750,16 @@ struct OvaView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     // Header section - left aligned (matching Spela layout exactly)
-                    HStack {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Öva")
                             .font(.system(size: 34, weight: .bold))
                             .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                        Spacer()
+                        
+                        Text("Välj vilka områden du vill träna på")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 4)
                     
@@ -379,7 +1894,7 @@ struct OvaView: View {
                         .padding(.vertical, 16)
                         .background(
                             Capsule()
-                                .fill(Color(red: 0.2, green: 0.78, blue: 0.35))  // Green
+                                .fill(Color(red: 0.1, green: 0.25, blue: 0.55))  // Changed to blue
                         )
                         .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 4)
                     }
@@ -451,7 +1966,7 @@ struct CountSelectionSheet: View {
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(red: 0.2, green: 0.78, blue: 0.35))  // Green
+                        .fill(Color(red: 0.1, green: 0.25, blue: 0.55))  // Changed to blue
                 )
             }
             .padding(.horizontal, 20)
@@ -492,7 +2007,7 @@ struct PlayButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(Color(red: 0.2, green: 0.78, blue: 0.35))  // Green color
+                    .fill(Color(red: 0.1, green: 0.25, blue: 0.55))  // Changed to blue
                     .frame(width: 44, height: 44)
                 
                 Image(systemName: "play.fill")
@@ -519,6 +2034,20 @@ struct ProvView: View {
         HistoricalTest(year: "2022", semester: "VT", kvant1: 1, kvant2: 4, verb1: 3, verb2: 5)
     ]
     
+    @Environment(\.modelContext) private var modelContext
+    @Query private var allSessions: [TestSession]
+    
+    @State private var showingGeneratedTestSheet = false
+    @State private var selectedGeneratedTestType = "KVANT"
+    @State private var navigateToGeneratedTest = false
+    @State private var timerEnabledForGenerated = true
+    @State private var showingRestartAlert = false
+    @State private var testToRestart: HistoricalTest?
+    @State private var showingGeneratedRestartAlert = false
+    @State private var generatedTestTypeToRestart: String?
+    @State private var animateCards = false
+    @State private var hasAnimated = false  // Track if animation has been shown
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -530,8 +2059,8 @@ struct ProvView: View {
                             .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                         
                         Text("Generera ett övningsprov")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
@@ -542,17 +2071,29 @@ struct ProvView: View {
                         // KVANT (Grey)
                         ProvCard(
                             title: "KVANT",
-                            iconName: "function"
+                            iconName: "wand.and.stars",
+                            hasProgress: hasGeneratedProgress(for: "KVANT"),
+                            onRestart: {
+                                generatedTestTypeToRestart = "KVANT"
+                                showingGeneratedRestartAlert = true
+                            }
                         ) {
-                            print("KVANT tapped")
+                            selectedGeneratedTestType = "KVANT"
+                            showingGeneratedTestSheet = true
                         }
                         
                         // VERB (Grey)
                         ProvCard(
                             title: "VERB",
-                            iconName: "book.fill"
+                            iconName: "sparkles",
+                            hasProgress: hasGeneratedProgress(for: "VERB"),
+                            onRestart: {
+                                generatedTestTypeToRestart = "VERB"
+                                showingGeneratedRestartAlert = true
+                            }
                         ) {
-                            print("VERB tapped")
+                            selectedGeneratedTestType = "VERB"
+                            showingGeneratedTestSheet = true
                         }
                     }
                     .padding(.horizontal, 20)
@@ -573,44 +2114,192 @@ struct ProvView: View {
                             // Row 1: HT 2025, VT 2025
                             HStack(spacing: 16) {
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[0])) {
-                                    HistoricalProvCard(year: "2025", semester: "HT")
+                                    HistoricalProvCard(
+                                        year: "2025",
+                                        semester: "HT",
+                                        hasProgress: hasProgress(for: historicalTests[0]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[0]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.0),
+                                    value: animateCards
+                                )
+                                
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[1])) {
-                                    HistoricalProvCard(year: "2025", semester: "VT")
+                                    HistoricalProvCard(
+                                        year: "2025",
+                                        semester: "VT",
+                                        hasProgress: hasProgress(for: historicalTests[1]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[1]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.1),
+                                    value: animateCards
+                                )
                             }
                             .padding(.horizontal, 20)
                             
                             // Row 2: HT 2024, VT 2024
                             HStack(spacing: 16) {
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[2])) {
-                                    HistoricalProvCard(year: "2024", semester: "HT")
+                                    HistoricalProvCard(
+                                        year: "2024",
+                                        semester: "HT",
+                                        hasProgress: hasProgress(for: historicalTests[2]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[2]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.2),
+                                    value: animateCards
+                                )
+                                
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[3])) {
-                                    HistoricalProvCard(year: "2024", semester: "VT")
+                                    HistoricalProvCard(
+                                        year: "2024",
+                                        semester: "VT",
+                                        hasProgress: hasProgress(for: historicalTests[3]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[3]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.3),
+                                    value: animateCards
+                                )
                             }
                             .padding(.horizontal, 20)
                             
                             // Row 3: HT 2023, VT 2023
                             HStack(spacing: 16) {
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[4])) {
-                                    HistoricalProvCard(year: "2023", semester: "HT")
+                                    HistoricalProvCard(
+                                        year: "2023",
+                                        semester: "HT",
+                                        hasProgress: hasProgress(for: historicalTests[4]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[4]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.4),
+                                    value: animateCards
+                                )
+                                
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[5])) {
-                                    HistoricalProvCard(year: "2023", semester: "VT")
+                                    HistoricalProvCard(
+                                        year: "2023",
+                                        semester: "VT",
+                                        hasProgress: hasProgress(for: historicalTests[5]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[5]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.5),
+                                    value: animateCards
+                                )
                             }
                             .padding(.horizontal, 20)
                             
                             // Row 4: HT 2022, VT 2022
                             HStack(spacing: 16) {
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[6])) {
-                                    HistoricalProvCard(year: "2022", semester: "HT")
+                                    HistoricalProvCard(
+                                        year: "2022",
+                                        semester: "HT",
+                                        hasProgress: hasProgress(for: historicalTests[6]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[6]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.6),
+                                    value: animateCards
+                                )
+                                
                                 NavigationLink(destination: HistoricalTestDetailView(test: historicalTests[7])) {
-                                    HistoricalProvCard(year: "2022", semester: "VT")
+                                    HistoricalProvCard(
+                                        year: "2022",
+                                        semester: "VT",
+                                        hasProgress: hasProgress(for: historicalTests[7]),
+                                        onRestart: {
+                                            testToRestart = historicalTests[7]
+                                            showingRestartAlert = true
+                                        }
+                                    )
                                 }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    // Navigation handled by NavigationLink
+                                })
+                                .offset(y: animateCards ? 0 : 50)
+                                .opacity(animateCards ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                                        .delay(0.7),
+                                    value: animateCards
+                                )
                             }
                             .padding(.horizontal, 20)
                         }
@@ -620,7 +2309,216 @@ struct ProvView: View {
             }
             .background(Color.white)
             .navigationBarHidden(true)
+            .onAppear {
+                // Only animate on first appearance
+                if !hasAnimated {
+                    animateCards = true
+                    hasAnimated = true
+                }
+            }
+            .sheet(isPresented: $showingGeneratedTestSheet) {
+                GeneratedProvInfoSheet(
+                    type: selectedGeneratedTestType,
+                    timerEnabled: $timerEnabledForGenerated,
+                    onStart: {
+                        showingGeneratedTestSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            navigateToGeneratedTest = true
+                        }
+                    }
+                )
+                .presentationDetents([.height(240)])
+                .presentationDragIndicator(.visible)
+            }
+            .background(
+                NavigationLink(destination: TestView(type: selectedGeneratedTestType, provpassNumber: 0, timerEnabled: timerEnabledForGenerated), isActive: $navigateToGeneratedTest) {
+                    EmptyView()
+                }
+            )
+            .overlay {
+                if showingRestartAlert, let test = testToRestart {
+                    ConfirmationOverlay(
+                        title: "Börja om prov?",
+                        message: "Detta kommer radera allt sparat framsteg för detta prov.",
+                        iconName: "arrow.counterclockwise",
+                        iconColor: Color(red: 1.0, green: 0.6, blue: 0.0),
+                        confirmButtonText: "Börja om",
+                        confirmButtonColor: Color(red: 0.95, green: 0.27, blue: 0.27),
+                        cancelButtonText: "Avbryt",
+                        onConfirm: {
+                            restartAllSessionsForTest(test)
+                            showingRestartAlert = false
+                        },
+                        onCancel: {
+                            showingRestartAlert = false
+                            testToRestart = nil
+                        }
+                    )
+                }
+                
+                if showingGeneratedRestartAlert, let testType = generatedTestTypeToRestart {
+                    ConfirmationOverlay(
+                        title: "Börja om prov?",
+                        message: "Detta kommer radera allt sparat framsteg för detta genererade prov.",
+                        iconName: "arrow.counterclockwise",
+                        iconColor: Color(red: 1.0, green: 0.6, blue: 0.0),
+                        confirmButtonText: "Börja om",
+                        confirmButtonColor: Color(red: 0.95, green: 0.27, blue: 0.27),
+                        cancelButtonText: "Avbryt",
+                        onConfirm: {
+                            restartGeneratedTest(testType)
+                            showingGeneratedRestartAlert = false
+                        },
+                        onCancel: {
+                            showingGeneratedRestartAlert = false
+                            generatedTestTypeToRestart = nil
+                        }
+                    )
+                }
+            }
         }
+    }
+    
+    // Helper to check if any progress exists for a generated test
+    private func hasGeneratedProgress(for type: String) -> Bool {
+        allSessions.contains { session in
+            !session.isCompleted &&
+            session.testType == type &&
+            session.provpassNumber == 0  // Generated tests have provpassNumber 0
+        }
+    }
+    
+    // Helper to check if any progress exists for a historical test
+    private func hasProgress(for test: HistoricalTest) -> Bool {
+        allSessions.contains { session in
+            !session.isCompleted &&
+            session.historicalTestYear == test.year &&
+            session.historicalTestSemester == test.semester
+        }
+    }
+    
+    // Restart generated test
+    private func restartGeneratedTest(_ testType: String) {
+        let sessionsToDelete = allSessions.filter { session in
+            session.testType == testType &&
+            session.provpassNumber == 0
+        }
+        
+        for session in sessionsToDelete {
+            modelContext.delete(session)
+        }
+        
+        do {
+            try modelContext.save()
+            print("✅ Deleted \(sessionsToDelete.count) generated \(testType) sessions")
+        } catch {
+            print("❌ Error deleting generated sessions: \(error)")
+        }
+        
+        generatedTestTypeToRestart = nil
+    }
+    
+    // Restart all sessions for a test
+    private func restartAllSessionsForTest(_ test: HistoricalTest) {
+        let sessionsToDelete = allSessions.filter { session in
+            session.historicalTestYear == test.year &&
+            session.historicalTestSemester == test.semester
+        }
+        
+        for session in sessionsToDelete {
+            modelContext.delete(session)
+        }
+        
+        do {
+            try modelContext.save()
+            print("✅ Deleted \(sessionsToDelete.count) sessions for \(test.semester) \(test.year)")
+        } catch {
+            print("❌ Error deleting sessions: \(error)")
+        }
+        
+        testToRestart = nil
+    }
+}
+
+// MARK: - Generated Prov Info Sheet
+struct GeneratedProvInfoSheet: View {
+    let type: String
+    @Binding var timerEnabled: Bool
+    let onStart: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            // Title
+            HStack {
+                Text("\(type)")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            
+            // Info box
+            VStack(spacing: 12) {
+                // Questions info
+                HStack {
+                    Text("Provet består av 40 frågor")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    Spacer()
+                }
+                
+                // Time info with toggle - subtle border style
+                HStack {
+                    Image(systemName: "timer")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    Text("Det tar 55 minuter")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    
+                    Spacer()
+                    
+                    // Custom subtle toggle
+                    Button(action: {
+                        timerEnabled.toggle()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: timerEnabled ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(timerEnabled ? Color(red: 0.2, green: 0.78, blue: 0.35) : Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.3))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(red: 0.969, green: 0.969, blue: 0.969))
+            )
+            .padding(.horizontal, 20)
+            
+            // Start button
+            Button(action: onStart) {
+                HStack(spacing: 12) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                    Text("Starta prov")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                )
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .background(Color.white)
     }
 }
 
@@ -628,28 +2526,72 @@ struct ProvView: View {
 struct ProvCard: View {
     let title: String
     let iconName: String
+    var hasProgress: Bool = false
+    var onRestart: (() -> Void)? = nil
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 16) {
-                // Large icon
-                Image(systemName: iconName)
-                    .font(.system(size: 48, weight: .medium))
-                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+            ZStack {
+                VStack(spacing: 16) {
+                    // Large icon
+                    Image(systemName: iconName)
+                        .font(.system(size: 48, weight: .medium))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    
+                    // Title text below icon
+                    Text(title)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        .multilineTextAlignment(.center)
+                    
+                    // Progress indicator
+                    if hasProgress {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Startad")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 0.2, green: 0.78, blue: 0.35).opacity(0.15))
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(red: 0.95, green: 0.95, blue: 0.95))  // Light grey
+                )
                 
-                // Title text below icon
-                Text(title)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                    .multilineTextAlignment(.center)
+                // Restart button overlay
+                if hasProgress, let onRestart = onRestart {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                onRestart()
+                            }) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 32, height: 32)
+                                    .background(
+                                        Circle()
+                                            .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                                    )
+                            }
+                            .padding(12)
+                        }
+                        Spacer()
+                    }
+                }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 160)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color(red: 0.95, green: 0.95, blue: 0.95))  // Light grey
-            )
             .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
@@ -671,25 +2613,86 @@ struct HistoricalTest: Identifiable {
 struct HistoricalProvCard: View {
     let year: String
     let semester: String
+    var hasProgress: Bool = false
+    var onRestart: (() -> Void)? = nil
     
     var body: some View {
-        VStack(spacing: 8) {
-            // Large year text
-            Text(year)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-            
-            // Semester text below
-            Text(semester)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 160)
-        .background(
+        ZStack {
+            // Base background - darker blue-grey
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color(red: 0.95, green: 0.95, blue: 0.95))  // Light grey
-        )
+                .fill(Color(red: 0.29, green: 0.34, blue: 0.42))  // Darker blue-grey #4A5669
+            
+            // Half circle overlay - lighter blue-grey, from right to middle
+            GeometryReader { geometry in
+                Circle()
+                    .fill(Color(red: 0.40, green: 0.45, blue: 0.54))  // Lighter blue-grey #66738A
+                    .frame(width: geometry.size.height * 1.4, height: geometry.size.height * 1.4)
+                    .offset(x: geometry.size.width * 0.3, y: -geometry.size.height * 0.2)
+                    .opacity(0.8)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            
+            // Content
+            VStack(spacing: 12) {
+                // Year and semester on the same row
+                HStack(spacing: 8) {
+                    Text(semester)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    Text(year)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                
+                // Small archive icon
+                Image(systemName: "archivebox.fill")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
+                
+                // Progress indicator
+                if hasProgress {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Pågående")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.25))
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 160)
+            
+            // Restart button overlay
+            if hasProgress, let onRestart = onRestart {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            onRestart()
+                        }) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(Color.black.opacity(0.3))
+                                )
+                        }
+                        .padding(12)
+                    }
+                    Spacer()
+                }
+            }
+        }
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
     }
 }
@@ -698,9 +2701,19 @@ struct HistoricalProvCard: View {
 struct HistoricalTestDetailView: View {
     let test: HistoricalTest
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query private var allSessions: [TestSession]
+    
     @State private var showingProvpassSheet = false
+    @State private var selectedProvpass: (type: String, number: Int)? = nil
     @State private var selectedProvpassType: String = "KVANT"
     @State private var selectedProvpassNumber: Int = 1
+    @State private var navigateToTest = false
+    @State private var resumeSession: TestSession?
+    
+    @State private var timerEnabledInSheet = true
+    @State private var showingRestartAlert = false
+    @State private var sessionToRestart: TestSession?
     
     var body: some View {
         ScrollView {
@@ -708,19 +2721,33 @@ struct HistoricalTestDetailView: View {
                 // Header
                 HStack {
                     Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .bold))
+                            Text("Tillbaka")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                        )
                     }
                     Spacer()
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(test.semester) \(test.year)")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top) {
+                        Text("\(test.semester) \(test.year)")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        
+                        Spacer()
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
@@ -736,23 +2763,41 @@ struct HistoricalTestDetailView: View {
                     .padding(.horizontal, 20)
                     
                     HStack(spacing: 16) {
-                        ProvpassCard(
+                        ProvpassCardWithProgress(
                             type: "KVANT",
-                            provpass: test.kvant1
-                        ) {
-                            selectedProvpassType = "KVANT"
-                            selectedProvpassNumber = test.kvant1
-                            showingProvpassSheet = true
-                        }
+                            provpass: test.kvant1,
+                            session: findSession(type: "KVANT", provpass: test.kvant1),
+                            onTap: {
+                                selectedProvpassType = "KVANT"
+                                selectedProvpassNumber = test.kvant1
+                                resumeSession = findSession(type: "KVANT", provpass: test.kvant1)
+                                showingProvpassSheet = true
+                            },
+                            onRestart: {
+                                if let session = findSession(type: "KVANT", provpass: test.kvant1) {
+                                    sessionToRestart = session
+                                    showingRestartAlert = true
+                                }
+                            }
+                        )
                         
-                        ProvpassCard(
+                        ProvpassCardWithProgress(
                             type: "KVANT",
-                            provpass: test.kvant2
-                        ) {
-                            selectedProvpassType = "KVANT"
-                            selectedProvpassNumber = test.kvant2
-                            showingProvpassSheet = true
-                        }
+                            provpass: test.kvant2,
+                            session: findSession(type: "KVANT", provpass: test.kvant2),
+                            onTap: {
+                                selectedProvpassType = "KVANT"
+                                selectedProvpassNumber = test.kvant2
+                                resumeSession = findSession(type: "KVANT", provpass: test.kvant2)
+                                showingProvpassSheet = true
+                            },
+                            onRestart: {
+                                if let session = findSession(type: "KVANT", provpass: test.kvant2) {
+                                    sessionToRestart = session
+                                    showingRestartAlert = true
+                                }
+                            }
+                        )
                     }
                     .padding(.horizontal, 20)
                 }
@@ -768,23 +2813,41 @@ struct HistoricalTestDetailView: View {
                     .padding(.horizontal, 20)
                     
                     HStack(spacing: 16) {
-                        ProvpassCard(
+                        ProvpassCardWithProgress(
                             type: "VERB",
-                            provpass: test.verb1
-                        ) {
-                            selectedProvpassType = "VERB"
-                            selectedProvpassNumber = test.verb1
-                            showingProvpassSheet = true
-                        }
+                            provpass: test.verb1,
+                            session: findSession(type: "VERB", provpass: test.verb1),
+                            onTap: {
+                                selectedProvpassType = "VERB"
+                                selectedProvpassNumber = test.verb1
+                                resumeSession = findSession(type: "VERB", provpass: test.verb1)
+                                showingProvpassSheet = true
+                            },
+                            onRestart: {
+                                if let session = findSession(type: "VERB", provpass: test.verb1) {
+                                    sessionToRestart = session
+                                    showingRestartAlert = true
+                                }
+                            }
+                        )
                         
-                        ProvpassCard(
+                        ProvpassCardWithProgress(
                             type: "VERB",
-                            provpass: test.verb2
-                        ) {
-                            selectedProvpassType = "VERB"
-                            selectedProvpassNumber = test.verb2
-                            showingProvpassSheet = true
-                        }
+                            provpass: test.verb2,
+                            session: findSession(type: "VERB", provpass: test.verb2),
+                            onTap: {
+                                selectedProvpassType = "VERB"
+                                selectedProvpassNumber = test.verb2
+                                resumeSession = findSession(type: "VERB", provpass: test.verb2)
+                                showingProvpassSheet = true
+                            },
+                            onRestart: {
+                                if let session = findSession(type: "VERB", provpass: test.verb2) {
+                                    sessionToRestart = session
+                                    showingRestartAlert = true
+                                }
+                            }
+                        )
                     }
                     .padding(.horizontal, 20)
                 }
@@ -797,14 +2860,71 @@ struct HistoricalTestDetailView: View {
             ProvpassInfoSheet(
                 type: selectedProvpassType,
                 provpassNumber: selectedProvpassNumber,
+                timerEnabled: $timerEnabledInSheet,
+                hasExistingSession: resumeSession != nil,
                 onStart: {
                     showingProvpassSheet = false
-                    print("Starting \(selectedProvpassType) Provpass \(selectedProvpassNumber)")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        navigateToTest = true
+                    }
                 }
             )
-            .presentationDetents([.height(240)])
+            .presentationDetents([.height(resumeSession != nil ? 280 : 240)])
             .presentationDragIndicator(.visible)
         }
+        .overlay {
+            if showingRestartAlert, let session = sessionToRestart {
+                ConfirmationOverlay(
+                    title: "Börja om delprov?",
+                    message: "Detta kommer radera ditt sparade framsteg för detta delprov.",
+                    iconName: "arrow.counterclockwise",
+                    iconColor: Color(red: 1.0, green: 0.6, blue: 0.0),
+                    confirmButtonText: "Börja om",
+                    confirmButtonColor: Color(red: 0.95, green: 0.27, blue: 0.27),
+                    cancelButtonText: "Avbryt",
+                    onConfirm: {
+                        restartSession(session)
+                        showingRestartAlert = false
+                    },
+                    onCancel: {
+                        showingRestartAlert = false
+                        sessionToRestart = nil
+                    }
+                )
+            }
+        }
+        .background(
+            NavigationLink(
+                destination: TestView(
+                    type: selectedProvpassType,
+                    provpassNumber: selectedProvpassNumber,
+                    timerEnabled: timerEnabledInSheet,
+                    historicalTest: test,
+                    existingSession: resumeSession
+                ),
+                isActive: $navigateToTest
+            ) {
+                EmptyView()
+            }
+        )
+    }
+    
+    // Find saved session for specific test
+    private func findSession(type: String, provpass: Int) -> TestSession? {
+        allSessions.first { session in
+            !session.isCompleted &&
+            session.testType == type &&
+            session.provpassNumber == provpass &&
+            session.historicalTestYear == test.year &&
+            session.historicalTestSemester == test.semester
+        }
+    }
+    
+    // Restart a session
+    private func restartSession(_ session: TestSession) {
+        modelContext.delete(session)
+        try? modelContext.save()
+        sessionToRestart = nil
     }
 }
 
@@ -812,8 +2932,9 @@ struct HistoricalTestDetailView: View {
 struct ProvpassInfoSheet: View {
     let type: String
     let provpassNumber: Int
+    @Binding var timerEnabled: Bool
+    let hasExistingSession: Bool
     let onStart: () -> Void
-    @State private var timerEnabled = true
     
     var body: some View {
         VStack(spacing: 24) {
@@ -837,17 +2958,41 @@ struct ProvpassInfoSheet: View {
                     Spacer()
                 }
                 
-                // Time info with toggle
+                // Resume indicator
+                if hasExistingSession {
+                    HStack {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                        Text("Du kommer fortsätta där du slutade")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                        Spacer()
+                    }
+                }
+                
+                // Time info with toggle - subtle border style
                 HStack {
+                    Image(systemName: "timer")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                     Text("Det tar 55 minuter")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                     
                     Spacer()
                     
-                    Toggle("", isOn: $timerEnabled)
-                        .labelsHidden()
-                        .tint(Color(red: 0.2, green: 0.78, blue: 0.35))
+                    // Custom subtle toggle
+                    Button(action: {
+                        timerEnabled.toggle()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: timerEnabled ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(timerEnabled ? Color(red: 0.2, green: 0.78, blue: 0.35) : Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.3))
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(16)
@@ -860,9 +3005,9 @@ struct ProvpassInfoSheet: View {
             // Start button
             Button(action: onStart) {
                 HStack(spacing: 12) {
-                    Image(systemName: "play.fill")
+                    Image(systemName: hasExistingSession ? "play.fill" : "play.fill")
                         .font(.system(size: 16, weight: .bold))
-                    Text("Starta prov")
+                    Text(hasExistingSession ? "Fortsätt" : "Starta prov")
                         .font(.system(size: 17, weight: .semibold))
                 }
                 .foregroundColor(.white)
@@ -870,7 +3015,7 @@ struct ProvpassInfoSheet: View {
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(red: 0.2, green: 0.78, blue: 0.35))
+                        .fill(hasExistingSession ? Color(red: 0.2, green: 0.78, blue: 0.35) : Color(red: 0.1, green: 0.25, blue: 0.55))
                 )
             }
             .padding(.horizontal, 20)
@@ -908,6 +3053,553 @@ struct ProvpassCard: View {
             .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Provpass Card With Progress Component
+struct ProvpassCardWithProgress: View {
+    let type: String
+    let provpass: Int
+    let session: TestSession?
+    let onTap: () -> Void
+    var onRestart: (() -> Void)? = nil
+    
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                VStack(spacing: 12) {
+                    // Type text
+                    Text(type)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    
+                    // Provpass text
+                    Text("Provpass \(provpass)")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+                    
+                    // Progress indicator
+                    if let session = session {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Startad")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 0.2, green: 0.78, blue: 0.35).opacity(0.15))
+                        )
+                        .padding(.top, 4)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(red: 0.95, green: 0.95, blue: 0.95))
+                )
+                
+                // Restart button overlay
+                if session != nil, let onRestart = onRestart {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                onRestart()
+                            }) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 32, height: 32)
+                                    .background(
+                                        Circle()
+                                            .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                                    )
+                            }
+                            .padding(12)
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Test View
+struct TestView: View {
+    let type: String
+    let provpassNumber: Int
+    let timerEnabled: Bool
+    var historicalTest: HistoricalTest? = nil  // Optional historical test for date display
+    var existingSession: TestSession? = nil  // For resuming saved progress
+    
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    
+    @State private var currentQuestion = 1
+    @State private var selectedAnswer: String? = nil
+    @State private var timeRemaining: TimeInterval = 55 * 60 // 55 minutes in seconds
+    @State private var timer: Timer?
+    @State private var showingExitAlert = false
+    @State private var testSession: TestSession?
+    @State private var answerHistory: [Int: String] = [:]  // questionNumber -> selectedOption
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header with timer and progress
+            VStack(spacing: 12) {
+                HStack {
+                    Button(action: { 
+                        showingExitAlert = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Avsluta")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                        )
+                    }
+                    
+                    Spacer()
+                    
+                    if timerEnabled {
+                        Text(timeString(from: timeRemaining))
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    }
+                    
+                    Spacer()
+                    
+                    Text("\(currentQuestion)/40")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(red: 0.9, green: 0.9, blue: 0.9))
+                            .frame(height: 4)
+                        
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            .frame(width: geometry.size.width * CGFloat(currentQuestion) / 40.0, height: 4)
+                    }
+                }
+                .frame(height: 4)
+                .padding(.horizontal, 20)
+            }
+            .padding(.bottom, 16)
+            .background(Color.white)
+            
+            // Question content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Question text
+                    
+                    Text("Fråga \(currentQuestion)-\(sectionCode(for: currentQuestion))")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    
+                    Text("This is a placeholder for the actual question content. The real implementation would load questions from a data source.")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        .lineSpacing(4)
+                    
+                    // Answer options
+                    VStack(spacing: 12) {
+                        ForEach(answerOptions(for: currentQuestion), id: \.self) { option in
+                            AnswerButton(
+                                option: option,
+                                isSelected: selectedAnswer == option
+                            ) {
+                                // Toggle selection - tap again to deselect
+                                if selectedAnswer == option {
+                                    selectedAnswer = nil
+                                    answerHistory.removeValue(forKey: currentQuestion)
+                                } else {
+                                    selectedAnswer = option
+                                    answerHistory[currentQuestion] = option
+                                }
+                                // Auto-save after answer selection
+                                saveProgress()
+                            }
+                        }
+                    }
+                    
+                    // Date badge at bottom left (only for historical tests)
+                    if let test = historicalTest {
+                        HStack {
+                            Text("\(test.semester) \(test.year)")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(red: 0.95, green: 0.95, blue: 0.95))
+                                )
+                            Spacer()
+                        }
+                        .padding(.top, 8)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+            
+            // Bottom navigation
+            HStack(spacing: 16) {
+                if currentQuestion > 1 {
+                    Button(action: {
+                        currentQuestion -= 1
+                        selectedAnswer = answerHistory[currentQuestion]
+                        saveProgress()
+                    }) {
+                        Text("Föregående")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(red: 0.0, green: 0.48, blue: 1.0), lineWidth: 2)
+                            )
+                    }
+                }
+                
+                if selectedAnswer != nil {
+                    Button(action: {
+                        if currentQuestion < 40 {
+                            currentQuestion += 1
+                            selectedAnswer = answerHistory[currentQuestion]
+                            saveProgress()
+                        } else {
+                            // Finish test - mark as completed
+                            completeTest()
+                            dismiss()
+                        }
+                    }) {
+                        Text(currentQuestion < 40 ? "Nästa" : "Avsluta")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            )
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(Color.white)
+            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -4)
+        }
+        .background(Color.white)
+        .navigationBarHidden(true)
+        .overlay {
+            if showingExitAlert {
+                ExitConfirmationOverlay(
+                    onContinue: {
+                        showingExitAlert = false
+                    },
+                    onSaveAndExit: {
+                        showingExitAlert = false
+                        timer?.invalidate()
+                        saveProgress()
+                        DispatchQueue.main.async {
+                            dismiss()
+                        }
+                    }
+                )
+            }
+        }
+        .onAppear {
+            // Load existing session or create new one
+            if let existing = existingSession {
+                testSession = existing
+                currentQuestion = existing.currentQuestionNumber
+                timeRemaining = existing.timeRemaining
+                // Load saved answers
+                for answer in existing.answers {
+                    answerHistory[answer.questionNumber] = answer.selectedOption
+                }
+                selectedAnswer = answerHistory[currentQuestion]
+                print("📂 Loaded existing session: Question \(currentQuestion), \(answerHistory.count) answers")
+            } else {
+                // Create new session
+                let newSession = TestSession(
+                    testType: type,
+                    provpassNumber: provpassNumber,
+                    historicalTestYear: historicalTest?.year,
+                    historicalTestSemester: historicalTest?.semester,
+                    timerEnabled: timerEnabled
+                )
+                modelContext.insert(newSession)
+                testSession = newSession
+                
+                // Save the new session immediately
+                do {
+                    try modelContext.save()
+                    print("✅ New session created and saved")
+                } catch {
+                    print("❌ Error creating session: \(error)")
+                }
+            }
+            
+            if timerEnabled {
+                startTimer()
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+        }
+    }
+    
+    private func startTimer() {
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            if timeRemaining > 0 {
+                timeRemaining -= 1
+                
+                // Auto-save progress every 30 seconds
+                if Int(timeRemaining) % 30 == 0 {
+                    saveProgress()
+                }
+            } else {
+                timer.invalidate()
+                // Handle time's up - save and complete
+                completeTest()
+            }
+        }
+    }
+    
+    private func timeString(from timeInterval: TimeInterval) -> String {
+        let minutes = Int(timeInterval) / 60
+        let seconds = Int(timeInterval) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    private func sectionCode(for question: Int) -> String {
+        if type == "KVANT" {
+            switch question {
+            case 1...12:
+                return "XYZ"
+            case 13...24:
+                return "KVA"
+            case 25...28:
+                return "NOG"
+            case 29...40:
+                return "DTK"
+            default:
+                return ""
+            }
+        } else if type == "VERB" {
+            switch question {
+            case 1...10:
+                return "ORD"
+            case 11...20:
+                return "LÄS"
+            case 21...30:
+                return "MEK"
+            case 31...40:
+                return "ELF"
+            default:
+                return ""
+            }
+        }
+        return ""
+    }
+    
+    private func answerOptions(for question: Int) -> [String] {
+        let section = sectionCode(for: question)
+        // ORD and NOG sections have 5 options (A-E)
+        if section == "ORD" || section == "NOG" {
+            return ["A", "B", "C", "D", "E"]
+        }
+        // All other sections have 4 options (A-D)
+        return ["A", "B", "C", "D"]
+    }
+    
+    private func saveProgress() {
+        guard let session = testSession else { return }
+        
+        // Update session details
+        session.currentQuestionNumber = currentQuestion
+        session.timeRemaining = timeRemaining
+        session.lastUpdated = Date()
+        
+        // Clear old answers and add current ones
+        session.answers.removeAll()
+        for (questionNum, option) in answerHistory.sorted(by: { $0.key < $1.key }) {
+            let answer = TestAnswer(questionNumber: questionNum, selectedOption: option)
+            answer.testSession = session
+            session.answers.append(answer)
+            modelContext.insert(answer)
+        }
+        
+        do {
+            try modelContext.save()
+            print("✅ Progress saved: Question \(currentQuestion), \(answerHistory.count) answers")
+        } catch {
+            print("❌ Error saving progress: \(error)")
+        }
+    }
+    
+    private func completeTest() {
+        guard let session = testSession else { return }
+        
+        timer?.invalidate()
+        
+        session.isCompleted = true
+        session.currentQuestionNumber = 40
+        session.lastUpdated = Date()
+        
+        // Save all answers one final time
+        session.answers.removeAll()
+        for (questionNum, option) in answerHistory.sorted(by: { $0.key < $1.key }) {
+            let answer = TestAnswer(questionNumber: questionNum, selectedOption: option)
+            answer.testSession = session
+            session.answers.append(answer)
+            modelContext.insert(answer)
+        }
+        
+        do {
+            try modelContext.save()
+            print("✅ Test completed and saved: \(answerHistory.count) answers")
+        } catch {
+            print("❌ Error completing test: \(error)")
+        }
+    }
+}
+
+// MARK: - Answer Button Component
+struct AnswerButton: View {
+    let option: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                // Option letter
+                Text(option)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(isSelected ? .white : Color(red: 0.11, green: 0.11, blue: 0.118))
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(isSelected ? Color(red: 0.1, green: 0.25, blue: 0.55) : Color(red: 0.95, green: 0.95, blue: 0.95))
+                    )
+                
+                // Answer text placeholder
+                Text("Svar alternativ \(option)")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color(red: 0.1, green: 0.25, blue: 0.55).opacity(0.1) : Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? Color(red: 0.1, green: 0.25, blue: 0.55) : Color.black, lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Exit Confirmation Overlay Component
+struct ExitConfirmationOverlay: View {
+    let onContinue: () -> Void
+    let onSaveAndExit: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Background blur
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            // Card
+            VStack(spacing: 24) {
+                // Icon
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 48, weight: .bold))
+                    .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.0))
+                
+                // Title
+                Text("Avsluta delprov?")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    .multilineTextAlignment(.center)
+                
+                // Message
+                Text("Du kan alltid återuppta provet senare från där du slutade.")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                
+                // Buttons
+                VStack(spacing: 12) {
+                    // Continue button
+                    Button(action: onContinue) {
+                        Text("Fortsätt öva")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            )
+                    }
+                    
+                    // Save and exit button
+                    Button(action: onSaveAndExit) {
+                        Text("Spara och avsluta")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(red: 0.1, green: 0.25, blue: 0.55), lineWidth: 2)
+                            )
+                    }
+                }
+            }
+            .padding(32)
+            .frame(width: 340)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+            )
+        }
+        .transition(.opacity)
     }
 }
 
