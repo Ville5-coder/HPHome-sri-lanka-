@@ -12,7 +12,76 @@ import SwiftData
 // DESIGN GUIDELINE: All confirmation popups and overlays must follow the pattern of ExitConfirmationOverlay and GameOverOverlay - with semi-transparent black background (0.4 opacity), white card with rounded corners (24pt radius), shadow, proper spacing (24pt between elements), and consistent button styling.
 // DESIGN GUIDELINE: All screens must have a "Tillbaka" (back) button in the top-left corner with blue color (RGB: 0.1, 0.25, 0.55) as the standard. Game-specific screens (like Ordsviten) should use their game's accent color instead (e.g., green RGB: 0.2, 0.78, 0.35 for Ordsviten).
 
+// DATABASE IMAGE STRUCTURE FOR KVANT ALTERNATIVES:
+// When importing questions from the database, KVANT alternatives can have images instead of text.
+// Image naming convention: "{testType}_{year}_{semester}_q{questionNumber}_option{letter}.png"
+// Examples:
+//   - "kvant_2025_ht_q5_optionA.png"  (Historical test: KVANT, HT 2025, Question 5, Option A)
+//   - "kvant_generated_0_q12_optionC.png"  (Generated test, Question 12, Option C)
+//
+// Database schema should include:
+//   - Question table: id, testType, year (nullable), semester (nullable), provpassNumber, questionNumber, questionText, questionImageName (nullable for DTK)
+//   - Alternative table: id, questionId (FK), letter (A/B/C/D/E), alternativeText (nullable), alternativeImageName (nullable)
+//
+// Usage in code:
+//   AnswerButton(option: "A", isSelected: true, text: "Text alternative", imageName: nil)
+//   AnswerButton(option: "B", isSelected: false, text: nil, imageName: "kvant_2025_ht_q5_optionB.png")
+
 // MARK: - SwiftData Models for Progress Saving
+
+// SAMPLE QUESTION DATABASE MODELS (for reference when implementing):
+// These models show the structure needed to support images in alternatives
+/*
+@Model
+final class Question {
+    var id: UUID
+    var testType: String  // "KVANT" or "VERB"
+    var year: String?  // e.g., "2025" (nil for generated)
+    var semester: String?  // "HT" or "VT" (nil for generated)
+    var provpassNumber: Int  // 0 for generated, 1-5 for historical
+    var questionNumber: Int  // 1-40
+    var sectionCode: String  // "XYZ", "KVA", "NOG", "DTK", "ORD", "LÄS", "MEK", "ELF"
+    var questionText: String
+    var questionImageName: String?  // For DTK questions with diagrams
+    var correctAnswerLetter: String  // "A", "B", "C", "D", or "E"
+    
+    @Relationship(deleteRule: .cascade)
+    var alternatives: [QuestionAlternative]
+    
+    init(testType: String, year: String? = nil, semester: String? = nil, 
+         provpassNumber: Int, questionNumber: Int, sectionCode: String,
+         questionText: String, questionImageName: String? = nil, correctAnswerLetter: String) {
+        self.id = UUID()
+        self.testType = testType
+        self.year = year
+        self.semester = semester
+        self.provpassNumber = provpassNumber
+        self.questionNumber = questionNumber
+        self.sectionCode = sectionCode
+        self.questionText = questionText
+        self.questionImageName = questionImageName
+        self.correctAnswerLetter = correctAnswerLetter
+        self.alternatives = []
+    }
+}
+
+@Model
+final class QuestionAlternative {
+    var id: UUID
+    var letter: String  // "A", "B", "C", "D", or "E"
+    var alternativeText: String?  // Text for the alternative (nullable if image is used)
+    var alternativeImageName: String?  // Image filename (nullable if text is used)
+    
+    var question: Question?
+    
+    init(letter: String, alternativeText: String? = nil, alternativeImageName: String? = nil) {
+        self.id = UUID()
+        self.letter = letter
+        self.alternativeText = alternativeText
+        self.alternativeImageName = alternativeImageName
+    }
+}
+*/
 
 @Model
 final class TestSession {
@@ -300,7 +369,9 @@ struct ContentView: View {
         .tint(Color(red: 0.0, green: 0.48, blue: 1.0))
         .onAppear {
             // Additional runtime fix to remove selection indicator
-            if let tabBar = UIApplication.shared.windows.first?.rootViewController?.view.subviews.first(where: { $0 is UITabBar }) as? UITabBar {
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first,
+               let tabBar = window.rootViewController?.view.subviews.first(where: { $0 is UITabBar }) as? UITabBar {
                 tabBar.selectionIndicatorImage = UIImage()
             }
         }
@@ -316,6 +387,7 @@ struct ContentView: View {
 // MARK: - Tab Views
 struct SpelaView: View {
     @State private var navigateToOrdsviten = false
+    @State private var navigateToFinnFelet = false
     
     var body: some View {
         NavigationStack {
@@ -352,7 +424,7 @@ struct SpelaView: View {
                             sectionCode: "MEK",
                             sectionIcon: "puzzlepiece"
                         ) {
-                            print("Finn felet tapped")
+                            navigateToFinnFelet = true
                         }
                     }
                     .padding(.horizontal, 20)
@@ -363,6 +435,9 @@ struct SpelaView: View {
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $navigateToOrdsviten) {
                 OrdsvitenIntroView()
+            }
+            .navigationDestination(isPresented: $navigateToFinnFelet) {
+                FinnFeletIntroView()
             }
         }
     }
@@ -778,40 +853,24 @@ struct OrdsvitenIntroView: View {
             
             Spacer()
             
-            // Action buttons
-            VStack(spacing: 16) {
-                // Play button
-                Button(action: {
-                    hasCompletedTutorial = true
-                    startGame = true
-                }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 16, weight: .bold))
-                        Text("Spela")
-                            .font(.system(size: 17, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(red: 0.2, green: 0.78, blue: 0.35))
-                    )
-                }
-                
-                // Cancel button
-                Button(action: { dismiss() }) {
-                    Text("Avbryt")
+            // Action button
+            Button(action: {
+                hasCompletedTutorial = true
+                startGame = true
+            }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                    Text("Spela")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color(red: 0.0, green: 0.48, blue: 1.0), lineWidth: 2)
-                        )
                 }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(red: 0.2, green: 0.78, blue: 0.35))
+                )
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
@@ -1275,6 +1334,582 @@ struct WordQuestion {
     }
 }
 
+// MARK: - Finn Felet Intro View
+struct FinnFeletIntroView: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("hasCompletedFinnFeletTutorial") private var hasCompletedTutorial = false
+    @State private var startGame = false
+    @State private var currentStep = 0  // 0 = title/settings, 1-2 = tutorial, 3 = completion
+    
+    // Game settings
+    @State private var selectedTimePerSentence: Double = 10.0  // Default: 10 seconds (Medium)
+    @State private var selectedHearts: Int = 3  // Default: 3 hearts
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header with back button (black for Finn felet game)
+            HStack {
+                Button(action: { dismiss() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Tillbaka")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(Color(red: 0.11, green: 0.11, blue: 0.118))  // Black for Finn felet
+                    )
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            
+            Spacer()
+            
+            // Main content area
+            ZStack {
+                if currentStep == 0 {
+                    // Show title and settings
+                    VStack(spacing: 32) {
+                        // Title
+                        VStack(spacing: 12) {
+                            Text("Finn felet")
+                                .font(.system(size: 48, weight: .bold))
+                                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                            
+                            Text("Hitta grammatikfelet i texten")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+                        }
+                        .padding(.bottom, 16)
+                        
+                        // Settings section
+                        VStack(spacing: 32) {
+                            // Time per sentence setting
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Tid per mening")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                
+                                HStack(spacing: 12) {
+                                    // 15 sec - Lätt
+                                    DifficultyButton(
+                                        time: 15.0,
+                                        label: "Lätt",
+                                        sublabel: "15 sek",
+                                        isSelected: selectedTimePerSentence == 15.0
+                                    ) {
+                                        selectedTimePerSentence = 15.0
+                                    }
+                                    
+                                    // 10 sec - Medium
+                                    DifficultyButton(
+                                        time: 10.0,
+                                        label: "Medium",
+                                        sublabel: "10 sek",
+                                        isSelected: selectedTimePerSentence == 10.0
+                                    ) {
+                                        selectedTimePerSentence = 10.0
+                                    }
+                                    
+                                    // 5 sec - Svår
+                                    DifficultyButton(
+                                        time: 5.0,
+                                        label: "Svår",
+                                        sublabel: "5 sek",
+                                        isSelected: selectedTimePerSentence == 5.0
+                                    ) {
+                                        selectedTimePerSentence = 5.0
+                                    }
+                                }
+                            }
+                            
+                            // Hearts setting
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Antal liv")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                                
+                                HStack(spacing: 12) {
+                                    // 1 heart
+                                    HeartButton(hearts: 1, isSelected: selectedHearts == 1) {
+                                        selectedHearts = 1
+                                    }
+                                    
+                                    // 3 hearts
+                                    HeartButton(hearts: 3, isSelected: selectedHearts == 3) {
+                                        selectedHearts = 3
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                } else if currentStep == 3 {
+                    // Show completion message
+                    VStack(spacing: 24) {
+                        Image(systemName: "party.popper.fill")
+                            .font(.system(size: 64, weight: .semibold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))  // Black
+                        
+                        Text("Perfekt!")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        
+                        Text("Nu är du redo att hitta fel på riktigt")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                            .multilineTextAlignment(.center)
+                    }
+                    .onAppear {
+                        // Mark tutorial as completed
+                        hasCompletedTutorial = true
+                        
+                        // After 2 seconds, go back to title/button view
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            withAnimation {
+                                currentStep = 0
+                            }
+                        }
+                    }
+                }
+                // Tutorial steps will be added later
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            Spacer()
+            
+            // Action button
+            Button(action: {
+                hasCompletedTutorial = true
+                startGame = true
+            }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                    Text("Spela")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(red: 0.11, green: 0.11, blue: 0.118))  // Black
+                )
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
+        }
+        .background(Color.white)
+        .navigationBarHidden(true)
+        .navigationDestination(isPresented: $startGame) {
+            FinnFeletGameView(timePerSentence: selectedTimePerSentence, maxHearts: selectedHearts)
+        }
+        .onAppear {
+            // Only show tutorial if not completed
+            if !hasCompletedTutorial {
+                // Show title for 1 second, then first tutorial step
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    withAnimation {
+                        currentStep = 1
+                    }
+                }
+            }
+            // If tutorial is completed, just show the title and buttons (currentStep = 0)
+        }
+    }
+}
+
+// MARK: - Finn Felet Game View
+struct FinnFeletGameView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    let timePerSentence: Double  // Time per sentence from settings
+    let maxHearts: Int  // Max hearts from settings
+    
+    @State private var hearts: Int
+    @State private var streak = 0
+    @State private var currentQuestionIndex = 0
+    @State private var gameOver = false
+    @State private var timeRemaining: Double
+    @State private var timer: Timer?
+    @State private var heartBounce = false
+    @State private var streakBounce = false
+    @State private var selectedWordIndex: Int? = nil
+    @State private var showingCorrectFeedback = false
+    @State private var showingWrongFeedback = false
+    
+    // Initialize with settings
+    init(timePerSentence: Double = 10.0, maxHearts: Int = 3) {
+        self.timePerSentence = timePerSentence
+        self.maxHearts = maxHearts
+        self._hearts = State(initialValue: maxHearts)
+        self._timeRemaining = State(initialValue: timePerSentence)
+    }
+    
+    // Sample questions (in real app, this would come from a database)
+    // Each sentence has one grammatical error
+    let questions = [
+        GrammarQuestion(
+            sentence: "Jag gillar att äta glass på sommaren när det är varmt ute",
+            words: ["Jag", "gillar", "att", "äta", "glass", "på", "sommaren", "när", "det", "är", "varmt", "ute"],
+            correctWordIndex: 1,  // "gillar" should be "tycker om"
+            explanation: "Fel: 'gillar' borde vara 'tycker om'"
+        ),
+        GrammarQuestion(
+            sentence: "Han gick till affären för att köpa mjölk och bröd",
+            words: ["Han", "gick", "till", "affären", "för", "att", "köpa", "mjölk", "och", "bröd"],
+            correctWordIndex: 3,  // "affären" should be "butiken" (more common)
+            explanation: "Fel: 'affären' är ovanligt, 'butiken' är bättre"
+        )
+    ]
+    
+    var currentQuestion: GrammarQuestion? {
+        guard currentQuestionIndex < questions.count else { return nil }
+        return questions[currentQuestionIndex]
+    }
+    
+    var body: some View {
+        ZStack {
+            Color.white.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Top bar with hearts and streak
+                HStack {
+                    // Hearts
+                    HStack(spacing: 8) {
+                        ForEach(0..<maxHearts, id: \.self) { index in
+                            Image(systemName: index < hearts ? "heart.fill" : "heart")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundColor(index < hearts ? .red : Color.gray.opacity(0.3))
+                        }
+                    }
+                    .scaleEffect(heartBounce ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.5), value: heartBounce)
+                    
+                    Spacer()
+                    
+                    // Streak counter
+                    HStack(spacing: 8) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.0))
+                        Text("\(streak)")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    }
+                    .scaleEffect(streakBounce ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.5), value: streakBounce)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                
+                // Timer bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Background
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 8)
+                        
+                        // Progress
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(
+                                timeRemaining > 3.0 ? Color(red: 0.11, green: 0.11, blue: 0.118) :  // Black
+                                timeRemaining > 1.5 ? Color.orange : Color.red
+                            )
+                            .frame(width: geometry.size.width * CGFloat(timeRemaining / timePerSentence), height: 8)
+                            .animation(.linear(duration: 0.1), value: timeRemaining)
+                    }
+                }
+                .frame(height: 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                
+                Spacer()
+                
+                if let question = currentQuestion {
+                    // Sentence with tappable words
+                    FlowLayout(spacing: 12) {
+                        ForEach(Array(question.words.enumerated()), id: \.offset) { index, word in
+                            WordButton(
+                                word: word,
+                                isSelected: selectedWordIndex == index,
+                                accentColor: Color(red: 0.11, green: 0.11, blue: 0.118)
+                            ) {
+                                selectWord(at: index)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                } else {
+                    // Game complete
+                    Text("Spelet slut!")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                }
+                
+                Spacer()
+            }
+            
+            // Feedback overlays
+            if showingCorrectFeedback {
+                Color.green.opacity(0.3)
+                    .ignoresSafeArea()
+                    .overlay(
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 100, weight: .bold))
+                            .foregroundColor(.green)
+                    )
+            }
+            
+            if showingWrongFeedback {
+                Color.red.opacity(0.3)
+                    .ignoresSafeArea()
+                    .overlay(
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 100, weight: .bold))
+                            .foregroundColor(.red)
+                    )
+            }
+        }
+        .navigationBarHidden(true)
+        .overlay {
+            // Custom game over overlay using reusable component
+            if gameOver {
+                GameOverOverlay(
+                    score: streak,
+                    scoreLabel: "Din streak",
+                    scoreIcon: "flame.fill",
+                    accentColor: Color(red: 0.11, green: 0.11, blue: 0.118)  // Black
+                ) {
+                    dismiss()
+                }
+            }
+        }
+        .onAppear {
+            startTimer()
+        }
+        .onDisappear {
+            stopTimer()
+        }
+    }
+    
+    private func startTimer() {
+        timeRemaining = timePerSentence
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            if timeRemaining > 0 {
+                timeRemaining -= 0.1
+            } else {
+                // Time's up - lose a heart
+                timer?.invalidate()
+                handleTimeout()
+            }
+        }
+    }
+    
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    private func handleTimeout() {
+        hearts -= 1
+        triggerHeartBounce()
+        showWrongFeedback()
+        
+        if hearts <= 0 {
+            stopTimer()
+            gameOver = true
+        } else {
+            // Move to next question
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                currentQuestionIndex += 1
+                selectedWordIndex = nil
+                
+                if currentQuestion == nil {
+                    // All questions completed
+                    stopTimer()
+                    gameOver = true
+                } else {
+                    startTimer()
+                }
+            }
+        }
+    }
+    
+    private func selectWord(at index: Int) {
+        guard let question = currentQuestion else { return }
+        
+        stopTimer()
+        selectedWordIndex = index
+        
+        // Check if correct
+        let isCorrect = index == question.correctWordIndex
+        
+        if isCorrect {
+            // Correct answer
+            streak += 1
+            triggerStreakBounce()
+            showCorrectFeedback()
+        } else {
+            // Wrong answer
+            hearts -= 1
+            triggerHeartBounce()
+            showWrongFeedback()
+            
+            // Check if game over AFTER showing feedback
+            if hearts <= 0 {
+                stopTimer()  // Stop timer immediately
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    gameOver = true
+                }
+                return
+            }
+        }
+        
+        // Move to next question (only if hearts > 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            currentQuestionIndex += 1
+            selectedWordIndex = nil
+            
+            if currentQuestion == nil {
+                // All questions completed
+                stopTimer()  // Stop timer when all questions done
+                gameOver = true
+            } else {
+                startTimer()
+            }
+        }
+    }
+    
+    private func showCorrectFeedback() {
+        showingCorrectFeedback = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showingCorrectFeedback = false
+        }
+    }
+    
+    private func showWrongFeedback() {
+        showingWrongFeedback = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showingWrongFeedback = false
+        }
+    }
+    
+    private func triggerHeartBounce() {
+        heartBounce = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            heartBounce = false
+        }
+    }
+    
+    private func triggerStreakBounce() {
+        streakBounce = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            streakBounce = false
+        }
+    }
+}
+
+// MARK: - Grammar Question Model
+struct GrammarQuestion {
+    let sentence: String
+    let words: [String]
+    let correctWordIndex: Int
+    let explanation: String
+}
+
+// MARK: - Word Button Component (for Finn Felet)
+struct WordButton: View {
+    let word: String
+    let isSelected: Bool
+    let accentColor: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(word)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundColor(isSelected ? .white : Color(red: 0.11, green: 0.11, blue: 0.118))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? accentColor : Color(red: 0.97, green: 0.97, blue: 0.97))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isSelected ? accentColor : Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Flow Layout (for wrapping words)
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = FlowResult(
+            in: proposal.replacingUnspecifiedDimensions().width,
+            subviews: subviews,
+            spacing: spacing
+        )
+        return result.size
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = FlowResult(
+            in: bounds.width,
+            subviews: subviews,
+            spacing: spacing
+        )
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + result.frames[index].minX,
+                                     y: bounds.minY + result.frames[index].minY),
+                         proposal: ProposedViewSize(result.frames[index].size))
+        }
+    }
+    
+    struct FlowResult {
+        var frames: [CGRect] = []
+        var size: CGSize = .zero
+        
+        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat) {
+            var currentX: CGFloat = 0
+            var currentY: CGFloat = 0
+            var lineHeight: CGFloat = 0
+            
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+                
+                if currentX + size.width > maxWidth && currentX > 0 {
+                    // Move to next line
+                    currentX = 0
+                    currentY += lineHeight + spacing
+                    lineHeight = 0
+                }
+                
+                frames.append(CGRect(origin: CGPoint(x: currentX, y: currentY), size: size))
+                lineHeight = max(lineHeight, size.height)
+                currentX += size.width + spacing
+            }
+            
+            self.size = CGSize(width: maxWidth, height: currentY + lineHeight)
+        }
+    }
+}
+
 struct HemView: View {
     @AppStorage("dagensOrdStreak") private var streak = 0
     @AppStorage("lastCompletedDate") private var lastCompletedDateString = ""
@@ -1328,11 +1963,27 @@ struct HemView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Header
-                    HStack {
+                    // Header with logo
+                    HStack(alignment: .center, spacing: 12) {
+                        // Logo - using system icon as fallback if custom image not found
+                        if let _ = UIImage(named: "hphome-logo-dark") {
+                            Image("hphome-logo-dark")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 48, height: 48)
+                        } else {
+                            // Placeholder - replace with your actual logo
+                            Image(systemName: "graduationcap.circle.fill")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 48, height: 48)
+                                .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+                        }
+                        
                         Text("Hem")
                             .font(.system(size: 34, weight: .bold))
                             .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        
                         Spacer()
                     }
                     .padding(.horizontal, 20)
@@ -1715,6 +2366,39 @@ struct OvaView: View {
     @State private var selectedCount = 10  // Default selection
     @State private var selectedSections: Set<Int> = []  // Track selected section IDs
     @State private var showingCountSheet = false  // For the popup sheet
+    @State private var animateStats = false  // For stats animation
+    @State private var navigateToPractice = false  // For navigation to practice view
+    @State private var showingExerciseBreakdown = false  // For exercise breakdown popup
+    @State private var showingAccuracyBreakdown = false  // For accuracy breakdown popup
+    
+    // Arbitrary stats for gamification
+    let completedExercises = 127
+    let accuracy = 78.5
+    
+    // Section-specific stats
+    // VERB sections (ORD, LÄS, MEK, ELF)
+    let exercisesBySection: [String: Int] = [
+        "ORD": 23,
+        "LÄS": 18,
+        "MEK": 15,
+        "ELF": 12,
+        "XYZ": 21,
+        "KVA": 16,
+        "NOG": 14,
+        "DTK": 8
+    ]
+    
+    // Accuracy by section (must average to 78.5%)
+    let accuracyBySection: [String: Double] = [
+        "ORD": 82.3,
+        "LÄS": 75.8,
+        "MEK": 81.2,
+        "ELF": 73.5,
+        "XYZ": 79.4,
+        "KVA": 76.9,
+        "NOG": 80.1,
+        "DTK": 78.8
+    ]
     
     // 8 Högskoleprovet sections
     // KVANT sections (red): XYZ, KVA, NOG, DTK (ids 1-4)
@@ -1749,123 +2433,10 @@ struct OvaView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    // Header section - left aligned (matching Spela layout exactly)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Öva")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                        
-                        Text("Välj vilka områden du vill träna på")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 4)
-                    
-                    // Section cards in two columns - matching Spela's HStack spacing exactly
-                    HStack(spacing: 16) {
-                        // Left column
-                        VStack(spacing: 16) {
-                            ForEach(leftSections.indices, id: \.self) { index in
-                                let section = leftSections[index]
-                                SectionCard(
-                                    section: section,
-                                    isCompact: true,
-                                    isSelected: selectedSections.contains(section.id),
-                                    accentColor: sectionColor(for: section.id),
-                                    onTap: {
-                                        if selectedSections.contains(section.id) {
-                                            selectedSections.remove(section.id)
-                                        } else {
-                                            selectedSections.insert(section.id)
-                                        }
-                                    }
-                                )
-                                    .offset(y: animateCards ? 0 : 50)
-                                    .opacity(animateCards ? 1 : 0)
-                                    .animation(
-                                        .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
-                                            .delay(Double(index) * 0.1),
-                                        value: animateCards
-                                    )
-                            }
-                        }
-                        
-                        // Right column
-                        VStack(spacing: 16) {
-                            ForEach(rightSections.indices, id: \.self) { index in
-                                let section = rightSections[index]
-                                SectionCard(
-                                    section: section,
-                                    isCompact: true,
-                                    isSelected: selectedSections.contains(section.id),
-                                    accentColor: sectionColor(for: section.id),
-                                    onTap: {
-                                        if selectedSections.contains(section.id) {
-                                            selectedSections.remove(section.id)
-                                        } else {
-                                            selectedSections.insert(section.id)
-                                        }
-                                    }
-                                )
-                                    .offset(y: animateCards ? 0 : 50)
-                                    .opacity(animateCards ? 1 : 0)
-                                    .animation(
-                                        .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
-                                            .delay(Double(index + 4) * 0.1),
-                                        value: animateCards
-                                    )
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    
-                    // Statistik section - separate box
-                    VStack(spacing: 16) {
-                        // Section title
-                        HStack {
-                            Text("Statistik")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                            Spacer()
-                        }
-                        
-                        // Icons and text directly in the box
-                        VStack(spacing: 14) {
-                            // Row 1: Genomförda övningar with pencil icon
-                            HStack(spacing: 12) {
-                                Image(systemName: "pencil")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                                Text("genomförda övningar")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                                Spacer()
-                            }
-                            
-                            // Row 2: Träffsäkerhet with target icon
-                            HStack(spacing: 12) {
-                                Image(systemName: "target")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                                Text("träffsäkerhet")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                                Spacer()
-                            }
-                        }
-                    }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color(red: 0.969, green: 0.969, blue: 0.969))  // #F7F7F7
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 1)  // #E5E5E5
-                    )
-                    .padding(.horizontal)
+                    headerSection
+                    statisticsSection
+                    sectionTitleView
+                    sectionCardsGrid
                     
                     // Extra bottom spacing for the floating button
                     if !selectedSections.isEmpty {
@@ -1873,49 +2444,550 @@ struct OvaView: View {
                             .frame(height: 80)
                     }
                 }
-                .padding(.vertical, 24)    // Top/bottom breathing room
+                .padding(.vertical, 24)
             }
-            .background(Color.white)  // White background
-            .navigationBarHidden(true)  // Hide navigation bar
+            .background(Color.white)
+            .navigationBarHidden(true)
             .overlay(alignment: .bottom) {
-                // Floating play button at the bottom
-                if !selectedSections.isEmpty {
-                    Button(action: {
-                        showingCountSheet = true
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 18, weight: .bold))
-                            Text("Starta övning")
-                                .font(.system(size: 18, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 32)
-                        .padding(.vertical, 16)
-                        .background(
-                            Capsule()
-                                .fill(Color(red: 0.1, green: 0.25, blue: 0.55))  // Changed to blue
-                        )
-                        .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 4)
-                    }
-                    .padding(.bottom, 40)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                floatingPlayButton
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedSections.isEmpty)
             .onAppear {
                 animateCards = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                        animateStats = true
+                    }
+                }
             }
             .sheet(isPresented: $showingCountSheet) {
                 CountSelectionSheet(selectedCount: $selectedCount, onStart: {
                     showingCountSheet = false
-                    // Start practice action
-                    print("Starting practice with \(selectedSections.count) sections and \(selectedCount) questions")
+                    navigateToPractice = true
                 })
                 .presentationDetents([.height(280)])
                 .presentationDragIndicator(.visible)
             }
+            .overlay {
+                if showingExerciseBreakdown {
+                    StatsBreakdownOverlay(
+                        title: "Övningar per delprov",
+                        sections: ["ORD", "LÄS", "MEK", "ELF", "XYZ", "KVA", "NOG", "DTK"],
+                        values: exercisesBySection.mapValues { Double($0) },
+
+                        isPercentage: false,
+                        onDismiss: {
+                            showingExerciseBreakdown = false
+                        }
+                    )
+                }
+                
+                if showingAccuracyBreakdown {
+                    StatsBreakdownOverlay(
+                        title: "Träffsäkerhet per delprov",
+                        sections: ["ORD", "LÄS", "MEK", "ELF", "XYZ", "KVA", "NOG", "DTK"],
+                        values: accuracyBySection,
+                        isPercentage: true,
+                        onDismiss: {
+                            showingAccuracyBreakdown = false
+                        }
+                    )
+                }
+            }
+            .navigationDestination(isPresented: $navigateToPractice) {
+                PracticeView(
+                    selectedSections: Array(selectedSections),
+                    questionCount: selectedCount
+                )
+            }
         }
+    }
+    
+    // MARK: - View Components
+    
+    private var headerSection: some View {
+        HStack {
+            Text("Öva")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 4)
+    }
+    
+    private var statisticsSection: some View {
+        VStack(spacing: 20) {
+            // Title row
+            HStack {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+                Text("Din statistik")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                Spacer()
+            }
+            
+            HStack(spacing: 16) {
+                exerciseStatsCard
+                accuracyStatsCard
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 4)
+        .padding(.horizontal, 20)
+    }
+    
+    private var exerciseStatsCard: some View {
+        Button(action: {
+            showingExerciseBreakdown = true
+        }) {
+            VStack(spacing: 12) {
+                Image(systemName: "pencil.circle.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+                
+                Text("\(completedExercises)")
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    .scaleEffect(animateStats ? 1.0 : 0.5)
+                    .opacity(animateStats ? 1.0 : 0.0)
+                
+                Text("övningar")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.1, green: 0.25, blue: 0.55).opacity(0.1),
+                                Color(red: 0.1, green: 0.25, blue: 0.55).opacity(0.05)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color(red: 0.1, green: 0.25, blue: 0.55).opacity(0.3), lineWidth: 2)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var accuracyStatsCard: some View {
+        Button(action: {
+            showingAccuracyBreakdown = true
+        }) {
+            VStack(spacing: 12) {
+                Image(systemName: "target")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundColor(Color(red: 0.2, green: 0.78, blue: 0.35))
+                
+                HStack(spacing: 4) {
+                    Text(String(format: "%.1f", accuracy))
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        .scaleEffect(animateStats ? 1.0 : 0.5)
+                        .opacity(animateStats ? 1.0 : 0.0)
+                    Text("%")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+                        .offset(y: 2)
+                        .scaleEffect(animateStats ? 1.0 : 0.5)
+                        .opacity(animateStats ? 1.0 : 0.0)
+                }
+                
+                Text("träffsäkerhet")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.2, green: 0.78, blue: 0.35).opacity(0.1),
+                                Color(red: 0.2, green: 0.78, blue: 0.35).opacity(0.05)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color(red: 0.2, green: 0.78, blue: 0.35).opacity(0.3), lineWidth: 2)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var sectionTitleView: some View {
+        HStack {
+            Text("Välj vilka områden du vill träna på")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+    }
+    
+    private var sectionCardsGrid: some View {
+        HStack(spacing: 16) {
+            leftColumn
+            rightColumn
+        }
+        .padding(.horizontal, 20)
+    }
+    
+    private var leftColumn: some View {
+        VStack(spacing: 16) {
+            ForEach(leftSections.indices, id: \.self) { index in
+                let section = leftSections[index]
+                SectionCard(
+                    section: section,
+                    isCompact: true,
+                    isSelected: selectedSections.contains(section.id),
+                    accentColor: sectionColor(for: section.id),
+                    onTap: {
+                        if selectedSections.contains(section.id) {
+                            selectedSections.remove(section.id)
+                        } else {
+                            selectedSections.insert(section.id)
+                        }
+                    }
+                )
+                .offset(y: animateCards ? 0 : 50)
+                .opacity(animateCards ? 1 : 0)
+                .animation(
+                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                        .delay(Double(index) * 0.1),
+                    value: animateCards
+                )
+            }
+        }
+    }
+    
+    private var rightColumn: some View {
+        VStack(spacing: 16) {
+            ForEach(rightSections.indices, id: \.self) { index in
+                let section = rightSections[index]
+                SectionCard(
+                    section: section,
+                    isCompact: true,
+                    isSelected: selectedSections.contains(section.id),
+                    accentColor: sectionColor(for: section.id),
+                    onTap: {
+                        if selectedSections.contains(section.id) {
+                            selectedSections.remove(section.id)
+                        } else {
+                            selectedSections.insert(section.id)
+                        }
+                    }
+                )
+                .offset(y: animateCards ? 0 : 50)
+                .opacity(animateCards ? 1 : 0)
+                .animation(
+                    .spring(response: 0.6, dampingFraction: 0.7, blendDuration: 0)
+                        .delay(Double(index + 4) * 0.1),
+                    value: animateCards
+                )
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var floatingPlayButton: some View {
+        if !selectedSections.isEmpty {
+            Button(action: {
+                showingCountSheet = true
+            }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 18, weight: .bold))
+                    Text("Starta övning")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 16)
+                .background(
+                    Capsule()
+                        .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                )
+                .shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 4)
+            }
+            .padding(.bottom, 40)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+}
+
+// MARK: - Practice View
+// This view handles practice sessions for selected sections
+struct PracticeView: View {
+    let selectedSections: [Int]  // Array of section IDs
+    let questionCount: Int
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentQuestion = 1
+    @State private var selectedAnswer: String? = nil
+    @State private var showingExitAlert = false
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(spacing: 12) {
+                HStack {
+                    Button(action: { 
+                        showingExitAlert = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Avsluta")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                        )
+                    }
+                    
+                    Spacer()
+                    
+                    Text("\(currentQuestion)/\(questionCount)")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(red: 0.9, green: 0.9, blue: 0.9))
+                            .frame(height: 4)
+                        
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            .frame(width: geometry.size.width * CGFloat(currentQuestion) / CGFloat(questionCount), height: 4)
+                    }
+                }
+                .frame(height: 4)
+                .padding(.horizontal, 20)
+            }
+            .padding(.bottom, 16)
+            .background(Color.white)
+            
+            // Question content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Fråga \(currentQuestion)")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    
+                    Text("This is a placeholder for practice question content. Questions will be from the selected sections: \(sectionNames)")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        .lineSpacing(4)
+                    
+                    // Show DTK image if this would be a DTK question
+                    if isDTKSection {
+                        Button(action: {
+                            // Show image fullscreen
+                        }) {
+                            VStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color(red: 0.95, green: 0.95, blue: 0.95))
+                                        .frame(height: 220)
+                                    
+                                    VStack(spacing: 12) {
+                                        Image(systemName: "photo")
+                                            .font(.system(size: 48, weight: .medium))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.3))
+                                        
+                                        Text("DTK Diagram/Bild")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.5))
+                                        
+                                        Text("Tryck för att förstora")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.4))
+                                    }
+                                }
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                                )
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    // Answer options
+                    VStack(spacing: 12) {
+                        ForEach(answerOptions, id: \.self) { option in
+                            AnswerButton(
+                                option: option,
+                                isSelected: selectedAnswer == option,
+                                text: nil,  // Will use placeholder text
+                                imageName: nil  // Set to image filename when loading from database
+                            ) {
+                                if selectedAnswer == option {
+                                    selectedAnswer = nil
+                                } else {
+                                    selectedAnswer = option
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Section badges at bottom
+                    HStack(spacing: 8) {
+                        ForEach(selectedSections, id: \.self) { sectionId in
+                            if let sectionName = getSectionName(for: sectionId) {
+                                Text(sectionName)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color(red: 0.95, green: 0.95, blue: 0.95))
+                                    )
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 8)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+            
+            // Bottom navigation
+            HStack(spacing: 16) {
+                if currentQuestion > 1 {
+                    Button(action: {
+                        currentQuestion -= 1
+                        selectedAnswer = nil
+                    }) {
+                        Text("Föregående")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(red: 0.0, green: 0.48, blue: 1.0), lineWidth: 2)
+                            )
+                    }
+                }
+                
+                if selectedAnswer != nil {
+                    Button(action: {
+                        if currentQuestion < questionCount {
+                            currentQuestion += 1
+                            selectedAnswer = nil
+                        } else {
+                            // Finish practice
+                            dismiss()
+                        }
+                    }) {
+                        Text(currentQuestion < questionCount ? "Nästa" : "Avsluta")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(Color.white)
+            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: -4)
+        }
+        .background(Color.white)
+        .navigationBarHidden(true)
+        .overlay {
+            if showingExitAlert {
+                ConfirmationOverlay(
+                    title: "Avsluta övning?",
+                    message: "Ditt framsteg kommer inte att sparas.",
+                    iconName: "exclamationmark.triangle.fill",
+                    iconColor: Color(red: 1.0, green: 0.6, blue: 0.0),
+                    confirmButtonText: "Avsluta",
+                    confirmButtonColor: Color(red: 0.95, green: 0.27, blue: 0.27),
+                    cancelButtonText: "Fortsätt öva",
+                    onConfirm: {
+                        dismiss()
+                    },
+                    onCancel: {
+                        showingExitAlert = false
+                    }
+                )
+            }
+        }
+    }
+    
+    // Helper to check if DTK section is selected
+    private var isDTKSection: Bool {
+        selectedSections.contains(4)  // DTK is section ID 4
+    }
+    
+    // Helper to get section names as a comma-separated string
+    private var sectionNames: String {
+        selectedSections.compactMap { getSectionName(for: $0) }.joined(separator: ", ")
+    }
+    
+    // Helper to get section name from ID
+    private func getSectionName(for id: Int) -> String? {
+        let sections = [
+            1: "XYZ", 2: "KVA", 3: "NOG", 4: "DTK",
+            5: "ORD", 6: "LÄS", 7: "MEK", 8: "ELF"
+        ]
+        return sections[id]
+    }
+    
+    // Answer options based on selected sections
+    private var answerOptions: [String] {
+        // ORD (5) and NOG (3) have 5 options
+        if selectedSections.contains(5) || selectedSections.contains(3) {
+            return ["A", "B", "C", "D", "E"]
+        }
+        return ["A", "B", "C", "D"]
     }
 }
 
@@ -2330,11 +3402,9 @@ struct ProvView: View {
                 .presentationDetents([.height(240)])
                 .presentationDragIndicator(.visible)
             }
-            .background(
-                NavigationLink(destination: TestView(type: selectedGeneratedTestType, provpassNumber: 0, timerEnabled: timerEnabledForGenerated), isActive: $navigateToGeneratedTest) {
-                    EmptyView()
-                }
-            )
+            .navigationDestination(isPresented: $navigateToGeneratedTest) {
+                TestView(type: selectedGeneratedTestType, provpassNumber: 0, timerEnabled: timerEnabledForGenerated)
+            }
             .overlay {
                 if showingRestartAlert, let test = testToRestart {
                     ConfirmationOverlay(
@@ -2628,8 +3698,8 @@ struct HistoricalProvCard: View {
                     .fill(Color(red: 0.40, green: 0.45, blue: 0.54))  // Lighter blue-grey #66738A
                     .frame(width: geometry.size.height * 1.4, height: geometry.size.height * 1.4)
                     .offset(x: geometry.size.width * 0.3, y: -geometry.size.height * 0.2)
-                    .opacity(0.8)
             }
+            .opacity(0.8)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             
             // Content
@@ -2893,20 +3963,15 @@ struct HistoricalTestDetailView: View {
                 )
             }
         }
-        .background(
-            NavigationLink(
-                destination: TestView(
-                    type: selectedProvpassType,
-                    provpassNumber: selectedProvpassNumber,
-                    timerEnabled: timerEnabledInSheet,
-                    historicalTest: test,
-                    existingSession: resumeSession
-                ),
-                isActive: $navigateToTest
-            ) {
-                EmptyView()
-            }
-        )
+        .navigationDestination(isPresented: $navigateToTest) {
+            TestView(
+                type: selectedProvpassType,
+                provpassNumber: selectedProvpassNumber,
+                timerEnabled: timerEnabledInSheet,
+                historicalTest: test,
+                existingSession: resumeSession
+            )
+        }
     }
     
     // Find saved session for specific test
@@ -3079,7 +4144,7 @@ struct ProvpassCardWithProgress: View {
                         .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.6))
                     
                     // Progress indicator
-                    if let session = session {
+                    if session != nil {
                         HStack(spacing: 6) {
                             Image(systemName: "clock.fill")
                                 .font(.system(size: 12, weight: .semibold))
@@ -3150,6 +4215,8 @@ struct TestView: View {
     @State private var showingExitAlert = false
     @State private var testSession: TestSession?
     @State private var answerHistory: [Int: String] = [:]  // questionNumber -> selectedOption
+    @State private var showingImageFullScreen = false  // For DTK image zoom
+    @State private var imageScale: CGFloat = 1.0  // For image tap animation
     
     var body: some View {
         VStack(spacing: 0) {
@@ -3223,12 +4290,73 @@ struct TestView: View {
                         .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
                         .lineSpacing(4)
                     
+                    // DTK Image Block - only show for DTK questions
+                    if isDTKQuestion(currentQuestion) {
+                        Button(action: {
+                            // Scale up animation
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                imageScale = 1.05
+                            }
+                            
+                            // Show fullscreen after brief delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                showingImageFullScreen = true
+                                // Reset scale
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                    imageScale = 1.0
+                                }
+                            }
+                        }) {
+                            VStack(spacing: 12) {
+                                // Placeholder image with icon
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color(red: 0.95, green: 0.95, blue: 0.95))
+                                        .frame(height: 220)
+                                    
+                                    VStack(spacing: 12) {
+                                        Image(systemName: "photo")
+                                            .font(.system(size: 48, weight: .medium))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.3))
+                                        
+                                        Text("DTK Diagram/Bild")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.5))
+                                        
+                                        Text("Tryck för att förstora")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.4))
+                                    }
+                                }
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 2)
+                                )
+                            }
+                            .scaleEffect(imageScale)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
                     // Answer options
                     VStack(spacing: 12) {
                         ForEach(answerOptions(for: currentQuestion), id: \.self) { option in
+                            // When you implement database loading, replace this with:
+                            // if let alternative = currentQuestionFromDB?.alternatives.first(where: { $0.letter == option }) {
+                            //     AnswerButton(
+                            //         option: alternative.letter,
+                            //         isSelected: selectedAnswer == option,
+                            //         text: alternative.alternativeText,
+                            //         imageName: alternative.alternativeImageName
+                            //     ) { ... }
+                            // }
+                            
                             AnswerButton(
                                 option: option,
-                                isSelected: selectedAnswer == option
+                                isSelected: selectedAnswer == option,
+                                text: nil,  // Load from database: alternative.alternativeText
+                                imageName: nil  // Load from database: alternative.alternativeImageName
+                                                // Example: "kvant_2025_ht_q5_optionA.png"
                             ) {
                                 // Toggle selection - tap again to deselect
                                 if selectedAnswer == option {
@@ -3333,6 +4461,15 @@ struct TestView: View {
                     }
                 )
             }
+            
+            // Full-screen image viewer for DTK questions
+            if showingImageFullScreen {
+                DTKImageFullScreenView(
+                    onDismiss: {
+                        showingImageFullScreen = false
+                    }
+                )
+            }
         }
         .onAppear {
             // Load existing session or create new one
@@ -3374,6 +4511,14 @@ struct TestView: View {
         .onDisappear {
             timer?.invalidate()
         }
+    }
+    
+    // Helper to check if current question is a DTK question
+    private func isDTKQuestion(_ questionNumber: Int) -> Bool {
+        if type == "KVANT" {
+            return questionNumber >= 29 && questionNumber <= 40
+        }
+        return false
     }
     
     private func startTimer() {
@@ -3496,6 +4641,8 @@ struct TestView: View {
 struct AnswerButton: View {
     let option: String
     let isSelected: Bool
+    var text: String? = nil  // Optional text - if nil, uses placeholder
+    var imageName: String? = nil  // Optional image for KVANT alternatives
     let action: () -> Void
     
     var body: some View {
@@ -3511,11 +4658,36 @@ struct AnswerButton: View {
                             .fill(isSelected ? Color(red: 0.1, green: 0.25, blue: 0.55) : Color(red: 0.95, green: 0.95, blue: 0.95))
                     )
                 
-                // Answer text placeholder
-                Text("Svar alternativ \(option)")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Content: Either image or text
+                if let imageName = imageName {
+                    // Image alternative (for KVANT)
+                    ZStack {
+                        if let uiImage = UIImage(named: imageName) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxHeight: 80)
+                        } else {
+                            // Placeholder if image not found
+                            VStack(spacing: 4) {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 24, weight: .medium))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.3))
+                                Text(imageName)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.4))
+                            }
+                            .frame(maxHeight: 80)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    // Text alternative (standard)
+                    Text(text ?? "Svar alternativ \(option)")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(16)
             .background(
@@ -3528,6 +4700,98 @@ struct AnswerButton: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Answer Button Helpers
+// Helper extension for creating AnswerButton from database alternative
+/* Usage example when you implement your database:
+extension QuestionAlternative {
+    func toAnswerButton(isSelected: Bool, action: @escaping () -> Void) -> AnswerButton {
+        return AnswerButton(
+            option: self.letter,
+            isSelected: isSelected,
+            text: self.alternativeText,
+            imageName: self.alternativeImageName,
+            action: action
+        )
+    }
+}
+*/
+
+// MARK: - DTK Image Full Screen View Component
+struct DTKImageFullScreenView: View {
+    let onDismiss: () -> Void
+    @State private var scale: CGFloat = 1.0
+    
+    var body: some View {
+        ZStack {
+            // Background blur
+            Color.black.opacity(0.9)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    onDismiss()
+                }
+            
+            VStack {
+                // Close button
+                HStack {
+                    Spacer()
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(20)
+                    }
+                }
+                
+                Spacer()
+                
+                // Large image placeholder
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white)
+                    
+                    VStack(spacing: 16) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 80, weight: .medium))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.3))
+                        
+                        Text("DTK Diagram/Bild")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.5))
+                        
+                        Text("Fullskärmsvy")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(0.4))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 500)
+                .padding(.horizontal, 20)
+                .scaleEffect(scale)
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            scale = value
+                        }
+                        .onEnded { _ in
+                            withAnimation(.spring()) {
+                                scale = 1.0
+                            }
+                        }
+                )
+                
+                // Hint text
+                Text("Nyp för att zooma • Tryck utanför för att stänga")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.top, 24)
+                
+                Spacer()
+            }
+        }
+        .transition(.opacity)
     }
 }
 
@@ -3687,6 +4951,114 @@ struct SectionCard: View {
         .buttonStyle(.plain)
         .animation(.spring(response: 0.4, dampingFraction: 0.5), value: isJumping)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+    }
+}
+
+// MARK: - Stats Breakdown Overlay Component
+struct StatsBreakdownOverlay: View {
+    let title: String
+    let sections: [String]  // Section codes in order
+    let values: [String: Double]  // Section code -> value
+    let isPercentage: Bool
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Background blur
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    onDismiss()
+                }
+            
+            // Card
+            VStack(spacing: 24) {
+                // Title
+                Text(title)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+                    .multilineTextAlignment(.center)
+                
+                // Grid of sections - 4x2 (VERB first row, KVANT second row)
+                VStack(spacing: 16) {
+                    // First row - VERB sections (ORD, LÄS, MEK, ELF)
+                    HStack(spacing: 12) {
+                        ForEach(Array(sections.prefix(4)), id: \.self) { section in
+                            SectionStatCard(
+                                sectionCode: section,
+                                value: values[section] ?? 0,
+                                isPercentage: isPercentage
+                            )
+                        }
+                    }
+                    
+                    // Second row - KVANT sections (XYZ, KVA, NOG, DTK)
+                    HStack(spacing: 12) {
+                        ForEach(Array(sections.suffix(4)), id: \.self) { section in
+                            SectionStatCard(
+                                sectionCode: section,
+                                value: values[section] ?? 0,
+                                isPercentage: isPercentage
+                            )
+                        }
+                    }
+                }
+                
+                // Close button
+                Button(action: onDismiss) {
+                    Text("Stäng")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(red: 0.1, green: 0.25, blue: 0.55))
+                        )
+                }
+            }
+            .padding(32)
+            .frame(width: 380)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+            )
+        }
+        .transition(.opacity)
+    }
+}
+
+// MARK: - Section Stat Card Component
+struct SectionStatCard: View {
+    let sectionCode: String
+    let value: Double
+    let isPercentage: Bool
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Section code
+            Text(sectionCode)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(Color(red: 0.11, green: 0.11, blue: 0.118))
+            
+            // Value
+            if isPercentage {
+                Text(String(format: "%.1f%%", value))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+            } else {
+                Text("\(Int(value))")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 0.1, green: 0.25, blue: 0.55))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(red: 0.97, green: 0.97, blue: 0.97))
+        )
     }
 }
 
